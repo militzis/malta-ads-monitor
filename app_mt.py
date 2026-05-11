@@ -140,22 +140,25 @@ if search:
     ]
 
 # ── Top metrics ───────────────────────────────────────────────────────────────
-col1, col2, col3, col4, col5, col6 = st.columns(6)
-col1.metric("Total Ads",       f"{len(df):,}")
-col2.metric("Candidates",      f"{df['candidate'].nunique():,}")
-col3.metric("Unique Pages",    f"{df['page_id'].nunique():,}")
-col4.metric("Active",          f"{df['ad_stop_date'].isna().sum():,}")
+col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+col1.metric("Total Ads",    f"{len(df):,}")
+col2.metric("Candidates",   f"{df['candidate'].nunique():,}")
+col3.metric("Unique Pages", f"{df['page_id'].nunique():,}")
+col4.metric("Active",       f"{int(df['ad_stop_date'].isna().sum() - (df['removed']==1).sum()):,}")
+
+inactive_n = int((df['ad_stop_date'].notna() & (df['removed'] != 1)).sum())
+col5.metric("Inactive", f"{inactive_n:,}")
 
 removed_n = int((df['removed'] == 1).sum())
 checked_n = int(df['removed'].notna().sum())
-col5.metric(
+col6.metric(
     "Removed by Meta",
     f"{removed_n:,}",
     help=f"Checked: {checked_n:,} / {len(df):,}" if checked_n else "Run check_removed_ads_mt.py",
 )
 
 total_spend_max = df['spend_max'].sum()
-col6.metric(
+col7.metric(
     "Est. Spend Max",
     f"€{int(total_spend_max):,}" if total_spend_max > 0 else "—",
     help="Sum of spend_max across all filtered ads (EUR)",
