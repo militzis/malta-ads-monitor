@@ -1,8 +1,8 @@
 # Secrets & tokens
 .env
 
-# Databases (too large, contain personal data)
-*.db
+# Cyprus DB (large, stays local)
+politician_ads.db
 
 # Excel outputs
 *.xlsx
