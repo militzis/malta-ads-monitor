@@ -164,8 +164,9 @@ col6.metric(
 st.divider()
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_overview, tab_leaderboard, tab_timeline, tab_pages, tab_table = st.tabs([
-    "📊 Overview", "💰 Leaderboard", "📅 Timeline", "📄 Pages", "📋 All Ads"
+tab_overview, tab_leaderboard, tab_timeline, tab_pages, tab_active, tab_inactive, tab_removed, tab_table = st.tabs([
+    "📊 Overview", "💰 Leaderboard", "📅 Timeline", "📄 Pages",
+    "✅ Active", "⏹ Inactive", "⚠️ Removed by Meta", "📋 All Ads"
 ])
 
 # ═══════════════════════════════════════════════════════════
@@ -360,7 +361,106 @@ with tab_pages:
     )
 
 # ═══════════════════════════════════════════════════════════
-# TAB 5 — All Ads Table
+# TAB 5 — Active Ads
+# ═══════════════════════════════════════════════════════════
+with tab_active:
+    df_active = df[df['ad_stop_date'].isna() & (df['removed'] != 1)].copy()
+    st.subheader(f"✅ Active Ads ({len(df_active):,})")
+    st.caption("Ads currently running — no stop date, not removed by Meta.")
+
+    active_summary = (
+        df_active.groupby(['candidate', 'party'])
+        .agg(
+            Ads      =('ad_archive_id',  'count'),
+            Impr_Max =('impressions_max','sum'),
+            Spend_Max=('spend_max',      'sum'),
+            Pages    =('page_id',        'nunique'),
+        )
+        .reset_index()
+        .rename(columns={'candidate':'Candidate','party':'Party'})
+        .sort_values('Ads', ascending=False)
+    )
+    st.dataframe(active_summary, use_container_width=True, hide_index=True)
+
+    st.divider()
+    df_act_disp = df_active[['candidate','party','page_name','ad_start_date','impressions_max','spend_max','ad_url']].rename(columns={
+        'candidate':'Candidate','party':'Party','page_name':'Page',
+        'ad_start_date':'Started','impressions_max':'Impr Max','spend_max':'Spend Max','ad_url':'Ad'
+    })
+    st.dataframe(df_act_disp, use_container_width=True, height=400,
+        column_config={
+            "Ad":      st.column_config.LinkColumn("Ad", display_text="View"),
+            "Started": st.column_config.DateColumn("Started", format="DD/MM/YYYY"),
+        }, hide_index=True)
+
+# ═══════════════════════════════════════════════════════════
+# TAB 6 — Inactive Ads
+# ═══════════════════════════════════════════════════════════
+with tab_inactive:
+    df_inactive = df[df['ad_stop_date'].notna() & (df['removed'] != 1)].copy()
+    st.subheader(f"⏹ Inactive Ads ({len(df_inactive):,})")
+    st.caption("Ads that stopped running naturally — not removed by Meta.")
+
+    inactive_summary = (
+        df_inactive.groupby(['candidate', 'party'])
+        .agg(
+            Ads      =('ad_archive_id',  'count'),
+            Impr_Max =('impressions_max','sum'),
+            Spend_Max=('spend_max',      'sum'),
+        )
+        .reset_index()
+        .rename(columns={'candidate':'Candidate','party':'Party'})
+        .sort_values('Ads', ascending=False)
+    )
+    st.dataframe(inactive_summary, use_container_width=True, hide_index=True)
+
+    st.divider()
+    df_inact_disp = df_inactive[['candidate','party','page_name','ad_start_date','ad_stop_date','impressions_max','spend_max','ad_url']].rename(columns={
+        'candidate':'Candidate','party':'Party','page_name':'Page',
+        'ad_start_date':'Start','ad_stop_date':'Stop','impressions_max':'Impr Max','spend_max':'Spend Max','ad_url':'Ad'
+    })
+    st.dataframe(df_inact_disp, use_container_width=True, height=400,
+        column_config={
+            "Ad":   st.column_config.LinkColumn("Ad", display_text="View"),
+            "Start":st.column_config.DateColumn("Start", format="DD/MM/YYYY"),
+            "Stop": st.column_config.DateColumn("Stop",  format="DD/MM/YYYY"),
+        }, hide_index=True)
+
+# ═══════════════════════════════════════════════════════════
+# TAB 7 — Removed by Meta
+# ═══════════════════════════════════════════════════════════
+with tab_removed:
+    df_removed = df[df['removed'] == 1].copy()
+    st.subheader(f"⚠️ Removed by Meta ({len(df_removed):,})")
+    st.caption("Ads taken down for violating Meta's Advertising Standards.")
+
+    removed_summary = (
+        df_removed.groupby(['candidate', 'party'])
+        .agg(
+            Removed  =('ad_archive_id',  'count'),
+            Impr_Max =('impressions_max','sum'),
+            Spend_Max=('spend_max',      'sum'),
+        )
+        .reset_index()
+        .rename(columns={'candidate':'Candidate','party':'Party'})
+        .sort_values('Removed', ascending=False)
+    )
+    st.dataframe(removed_summary, use_container_width=True, hide_index=True)
+
+    st.divider()
+    df_rem_disp = df_removed[['candidate','party','page_name','ad_start_date','ad_stop_date','impressions_max','spend_max','ad_url']].rename(columns={
+        'candidate':'Candidate','party':'Party','page_name':'Page',
+        'ad_start_date':'Start','ad_stop_date':'Stop','impressions_max':'Impr Max','spend_max':'Spend Max','ad_url':'Ad'
+    })
+    st.dataframe(df_rem_disp, use_container_width=True, height=400,
+        column_config={
+            "Ad":   st.column_config.LinkColumn("Ad", display_text="View"),
+            "Start":st.column_config.DateColumn("Start", format="DD/MM/YYYY"),
+            "Stop": st.column_config.DateColumn("Stop",  format="DD/MM/YYYY"),
+        }, hide_index=True)
+
+# ═══════════════════════════════════════════════════════════
+# TAB 8 — All Ads Table
 # ═══════════════════════════════════════════════════════════
 with tab_table:
     st.subheader(f"All Ads ({len(df):,})")
