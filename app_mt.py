@@ -83,6 +83,12 @@ df_all = load_data()
 
 if df_all.empty:
     st.error(f"Database not found: {DB_PATH}")
+    st.write("**Files in app directory:**")
+    try:
+        files = os.listdir(BASE)
+        st.code("\n".join(sorted(files)))
+    except Exception as e:
+        st.write(f"Could not list files: {e}")
     st.stop()
 
 # ── Sidebar filters ───────────────────────────────────────────────────────────
