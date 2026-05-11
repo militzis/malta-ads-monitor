@@ -1,0 +1,26 @@
+# Secrets & tokens
+.env
+
+# Databases (too large, contain personal data)
+*.db
+
+# Excel outputs
+*.xlsx
+
+# Logs
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Fetch state (local only)
+fetch_state.json
+
+# Cache files
+*.json
+!page_blocklist_mt.json
+!candidates.csv
