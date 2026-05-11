@@ -17,10 +17,9 @@ __pycache__/
 .venv/
 venv/
 
-# Fetch state (local only)
-fetch_state.json
-
 # Cache files
 *.json
 !page_blocklist_mt.json
 !candidates.csv
+!candidates_mt.csv
+!fetch_state.json

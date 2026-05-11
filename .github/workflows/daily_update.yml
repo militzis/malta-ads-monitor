@@ -1,0 +1,50 @@
+name: Malta Daily Update
+
+on:
+  schedule:
+    - cron: '0 8 * * *'   # 08:00 UTC = 10:00 Malta time (CEST, UTC+2)
+  workflow_dispatch:        # Also allow manual run from GitHub UI
+
+permissions:
+  contents: write           # Needed to commit DB back to repo
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright browser
+        run: playwright install chromium --with-deps
+
+      - name: Step 1 — Fetch new Malta ads
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: python check_all_candidates_mt.py
+
+      - name: Step 2 — Check for removed ads
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: python check_removed_ads_mt.py --all --since 2026-01-01 --concurrency 2
+
+      - name: Step 3 — Rebuild combined Excel
+        run: python make_combined_excel_mt.py
+
+      - name: Commit and push updated database
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add politician_ads_mt.db fetch_state.json || true
+          git diff --staged --quiet && echo "No changes to commit" || \
+            git commit -m "Daily update $(date +%Y-%m-%d)" && git push
