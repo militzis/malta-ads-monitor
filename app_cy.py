@@ -20,6 +20,16 @@ st.set_page_config(
     layout="wide",
 )
 
+# ── Import utils filters (comprehensive 200+ keyword business list) ───────────
+try:
+    from utils import is_business, is_excluded, load_exclusions, is_non_political_by_category, load_page_categories
+    _EXCL_IDS, _EXCL_NAMES = load_exclusions()
+    _PAGE_CATS = load_page_categories()
+    _HAS_UTILS = True
+except ImportError:
+    _HAS_UTILS = False
+    _EXCL_IDS, _EXCL_NAMES, _PAGE_CATS = set(), set(), {}
+
 # ── Cached data loaders ───────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
 def load_blocklist():
@@ -31,20 +41,6 @@ def load_blocklist():
             elif isinstance(data, dict):
                 return set(str(k) for k in data.keys())
     return set()
-
-# ── Business-name filter (mirrors utils.py) ───────────────────────────────────
-import re
-_BIZ_RE = re.compile(
-    r'\b(ltd|llc|inc|corp|co\b|company|group|services|agency|store|shop|'
-    r'market|mall|centre|center|hotel|resort|cafe|restaurant|bar|gym|'
-    r'academy|clinic|hospital|pharmacy|media|news|radio|tv|'
-    r'construction|real estate|properties|developments|investments|'
-    r'insurance|bank|finance|consulting|solutions|technologies?|digital|'
-    r'αρχιτεκτ|φαρμακ|ξενοδοχ|εστιατ|makeup|bakeri|παντοπωλ)\b',
-    re.IGNORECASE
-)
-def _is_business(page_name: str) -> bool:
-    return bool(_BIZ_RE.search(page_name or ""))
 
 @st.cache_data(ttl=300)
 def load_data():
@@ -60,8 +56,22 @@ def load_data():
     # Apply blocklist
     df = df[~df['page_id'].astype(str).isin(blocklist)].copy()
 
-    # Apply business filter (same as make_combined_excel.py)
-    df = df[~df['page_name'].apply(_is_business)].copy()
+    # Apply full filters from utils.py (200+ business keywords + exclusions list)
+    if _HAS_UTILS:
+        mask = df.apply(
+            lambda r: (
+                is_excluded(str(r['page_id'] or ''), r['page_name'] or '', _EXCL_IDS, _EXCL_NAMES)
+                or is_business(r['page_name'] or '')
+                or is_non_political_by_category(str(r['page_id'] or ''), _PAGE_CATS)
+            ), axis=1
+        )
+        df = df[~mask].copy()
+    else:
+        # Fallback if utils.py not available
+        df = df[~df['page_name'].str.contains(
+            r'\b(ltd|llc|restaurant|cafe|bar|pharmacy|clinic|hotel|casino)\b',
+            case=False, na=False, regex=True
+        )].copy()
 
     # Derived columns
     df['candidate'] = df['politician_query'].str.split('|').str[0].str.strip()
