@@ -157,8 +157,23 @@ def upsert_ads(ads: list[dict]) -> int:
             ad_text = (bodies + " " + titles).strip()[:1000] or None
 
             conn.execute("""
-                INSERT OR REPLACE INTO politician_ads VALUES
-                (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                INSERT INTO politician_ads
+                    (ad_archive_id, politician_query, party, district,
+                     page_name, page_id, bylines, is_third_party,
+                     ad_start_date, ad_stop_date,
+                     impressions_min, impressions_max,
+                     spend_min, spend_max, currency,
+                     snapshot_url, checked_at, source,
+                     removed, removed_checked_at, ad_text)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(ad_archive_id) DO UPDATE SET
+                    impressions_min     = excluded.impressions_min,
+                    impressions_max     = excluded.impressions_max,
+                    spend_min           = excluded.spend_min,
+                    spend_max           = excluded.spend_max,
+                    ad_stop_date        = excluded.ad_stop_date,
+                    page_name           = excluded.page_name,
+                    checked_at          = excluded.checked_at
             """, (
                 ad.get("id"),
                 ad.get("_query"),
@@ -178,8 +193,8 @@ def upsert_ads(ads: list[dict]) -> int:
                 ad.get("ad_snapshot_url"),
                 now,
                 'greek',
-                0,    # removed
-                None, # removed_checked_at
+                0,    # removed (only for new rows)
+                None, # removed_checked_at (only for new rows)
                 ad_text,
             ))
             inserted += 1

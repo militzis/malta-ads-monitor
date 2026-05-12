@@ -1,16 +1,15 @@
 """
-daily_update_mt.py — Malta daily pipeline runner.
+daily_update_mt.py — Malta pipeline runner.
 
-Runs every day to:
-  1. Fetch new ads since last run (incremental)
-  2. Check 2026 ads for Meta removals (Playwright)
-  3. Rebuild the combined Excel
-  4. Push updated DB to GitHub so Streamlit refreshes
-
-Usage:
+Daily (incremental):
     python daily_update_mt.py
-    python daily_update_mt.py --skip-removed   # skip removal check (faster)
-    python daily_update_mt.py --skip-push      # don't push to GitHub
+
+Weekly full re-fetch (updates spend/impressions for all ads):
+    python daily_update_mt.py --full
+
+Other flags:
+    --skip-removed   skip the Playwright removal check (faster)
+    --skip-push      don't push to GitHub
 """
 
 import sys, os, subprocess, argparse
@@ -60,16 +59,22 @@ def git_push():
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--full',         action='store_true',
+                        help='Full re-fetch from Oct 2025 (updates spend for all ads)')
     parser.add_argument('--skip-removed', action='store_true',
                         help='Skip the Playwright removal check')
     parser.add_argument('--skip-push',    action='store_true',
                         help='Skip git push to GitHub')
     args = parser.parse_args()
 
-    print(f"\n🗳️  Malta Daily Update — {date.today().isoformat()}")
+    mode = "FULL re-fetch" if args.full else "incremental"
+    print(f"\n🗳️  Malta Update ({mode}) — {date.today().isoformat()}")
 
-    # ── Step 1: Fetch new ads ──────────────────────────────────────────────────
-    ok = run(["check_all_candidates_mt.py"], "Step 1/3 — Fetch new Malta ads (incremental)")
+    # ── Step 1: Fetch ads ─────────────────────────────────────────────────────
+    fetch_cmd = ["check_all_candidates_mt.py"]
+    if args.full:
+        fetch_cmd.append("--full")
+    ok = run(fetch_cmd, f"Step 1/3 — Fetch Malta ads ({mode})")
     if not ok:
         print("\n❌ Fetch failed — check your META_ACCESS_TOKEN in .env")
         sys.exit(1)
@@ -77,7 +82,7 @@ def main():
     # ── Step 2: Check for removals ────────────────────────────────────────────
     if not args.skip_removed:
         run(
-            ["check_removed_ads_mt.py", "--since", "2026-01-01", "--concurrency", "3"],
+            ["check_removed_ads_mt.py", "--since", "2025-10-01", "--concurrency", "3"],
             "Step 2/3 — Check for removed ads (Playwright)"
         )
     else:
