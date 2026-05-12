@@ -242,8 +242,8 @@ def main():
     parser = argparse.ArgumentParser(description="Check Cyprus ads for Meta removal")
     parser.add_argument('--all',         action='store_true',
                         help='Re-check all ads (default: only unchecked)')
-    parser.add_argument('--since',       default='2026-01-01',
-                        help='Only check ads with start_date >= DATE (default: 2026-01-01)')
+    parser.add_argument('--since',       default='2025-10-01',
+                        help='Only check ads with start_date >= DATE (default: 2025-10-01)')
     parser.add_argument('--no-since',    action='store_true',
                         help='Ignore the since date filter — check all dates')
     parser.add_argument('--concurrency', type=int, default=2,
