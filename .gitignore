@@ -1,8 +1,8 @@
 # Secrets & tokens
 .env
 
-# Cyprus DB (large, stays local)
-politician_ads.db
+# Cyprus DB — tracked so Streamlit can read it
+# politician_ads.db
 
 # Excel outputs
 *.xlsx
@@ -20,6 +20,7 @@ venv/
 # Cache files
 *.json
 !page_blocklist_mt.json
+!page_blocklist.json
 !candidates.csv
 !candidates_mt.csv
 !fetch_state.json
