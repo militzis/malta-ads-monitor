@@ -107,12 +107,26 @@ def load_ads(conn, blocklist: set, only_unchecked: bool, since: str, limit: int)
 
 
 def save_results(results: list[tuple]):
-    """Bulk save results: [(ad_archive_id, removed_int, now_str), ...]"""
+    """Bulk save results: [(ad_archive_id, removed_int, now_str), ...]
+
+    Policy: once removed=1 is confirmed it is NEVER downgraded back to 0,
+    because Meta's Ad Library rendering is inconsistent between requests.
+    """
     conn = sqlite3.connect(DB_PATH)
-    conn.executemany(
-        "UPDATE politician_ads SET removed=?, removed_checked_at=? WHERE ad_archive_id=?",
-        [(removed, ts, ad_id) for ad_id, removed, ts in results]
-    )
+    for ad_id, removed, ts in results:
+        if removed == 1:
+            # Always mark confirmed removals
+            conn.execute(
+                "UPDATE politician_ads SET removed=1, removed_checked_at=? WHERE ad_archive_id=?",
+                (ts, ad_id)
+            )
+        else:
+            # Only set active if not already confirmed removed
+            conn.execute(
+                "UPDATE politician_ads SET removed=0, removed_checked_at=? "
+                "WHERE ad_archive_id=? AND (removed IS NULL OR removed = 0)",
+                (ts, ad_id)
+            )
     conn.commit()
     conn.close()
 
