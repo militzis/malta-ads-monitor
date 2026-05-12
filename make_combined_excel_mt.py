@@ -58,7 +58,9 @@ SUM_COLUMNS = [
 print("Loading DB …")
 conn = sqlite3.connect(DB_PATH)
 conn.row_factory = sqlite3.Row
-all_rows_raw = conn.execute("SELECT * FROM politician_ads").fetchall()
+all_rows_raw = conn.execute(
+    "SELECT * FROM politician_ads WHERE ad_start_date >= '2025-10-01'"
+).fetchall()
 conn.close()
 
 all_rows = [dict(r) for r in all_rows_raw]

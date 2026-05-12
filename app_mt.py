@@ -34,7 +34,9 @@ def load_data():
         return pd.DataFrame()
 
     conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM politician_ads", conn)
+    df = pd.read_sql_query(
+        "SELECT * FROM politician_ads WHERE ad_start_date >= '2025-10-01'", conn
+    )
     conn.close()
 
     blocklist = load_blocklist()
