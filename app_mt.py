@@ -199,27 +199,60 @@ with tab_overview:
 
     st.divider()
     st.subheader("Candidate Summary")
+
+    # Ad text preview per candidate (first 120 chars of most recent ad)
+    ad_preview = (
+        df.dropna(subset=['ad_text'])
+        .sort_values('ad_start_date', ascending=False)
+        .groupby('candidate')['ad_text']
+        .first()
+        .str.slice(0, 120)
+        .reset_index()
+        .rename(columns={'candidate': 'Candidate', 'ad_text': 'Ad Preview'})
+    )
+
     cand_summary = (
         df.groupby(['candidate', 'party'])
         .agg(
-            Ads       =('ad_archive_id', 'count'),
-            Active    =('ad_stop_date',  lambda x: x.isna().sum()),
-            Impr_Max  =('impressions_max','sum'),
-            Spend_Max =('spend_max',      'sum'),
-            Removed   =('removed',        lambda x: (x == 1).sum()),
-            Pages     =('page_id',        'nunique'),
+            Ads      =('ad_archive_id', 'count'),
+            Active   =('ad_stop_date',  lambda x: x.isna().sum()),
+            Inactive =('ad_stop_date',  lambda x: x.notna().sum()),
+            Removed  =('removed',       lambda x: (x == 1).sum()),
+            Spend_Min=('spend_min',     'sum'),
+            Spend_Max=('spend_max',     'sum'),
+            Impr_Max =('impressions_max','sum'),
+            Pages    =('page_id',       'nunique'),
         )
         .reset_index()
         .rename(columns={'candidate': 'Candidate', 'party': 'Party'})
         .sort_values('Ads', ascending=False)
     )
-    cand_summary['Spend_Max'] = cand_summary['Spend_Max'].apply(
-        lambda x: f"€{int(x):,}" if x > 0 else "—"
+
+    cand_summary['Spend'] = cand_summary.apply(
+        lambda r: (
+            f"€{int(r.Spend_Min):,} – €{int(r.Spend_Max):,}" if r.Spend_Min > 0
+            else (f"≤ €{int(r.Spend_Max):,}" if r.Spend_Max > 0 else "—")
+        ), axis=1
     )
-    cand_summary['Impr_Max'] = cand_summary['Impr_Max'].apply(
+    cand_summary['Impressions'] = cand_summary['Impr_Max'].apply(
         lambda x: f"{int(x):,}" if x > 0 else "—"
     )
-    st.dataframe(cand_summary, use_container_width=True, hide_index=True)
+
+    cand_summary = cand_summary.merge(ad_preview, on='Candidate', how='left')
+
+    st.dataframe(
+        cand_summary[[
+            'Candidate', 'Party',
+            'Ads', 'Active', 'Inactive', 'Removed',
+            'Spend', 'Impressions', 'Pages',
+            'Ad Preview',
+        ]],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            'Ad Preview': st.column_config.TextColumn('Ad Preview (most recent)', width='large'),
+        }
+    )
 
 # ═══════════════════════════════════════════════════════════
 # TAB 2 — Spending Leaderboard
