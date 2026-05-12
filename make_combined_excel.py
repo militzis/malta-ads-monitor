@@ -156,10 +156,10 @@ ws2 = wb.create_sheet(title="Summary")
 
 SUM_COLUMNS = [
     "Candidate", "Party", "District",
-    "Total Ads", "Active Ads", "Stopped Ads",
+    "Total Ads", "Active Ads", "Inactive Ads", "Removed Ads",
     "Impressions Min (total)", "Impressions Max (total)",
     "Spend Min (total)", "Spend Max (total)", "Currency",
-    "Unique Pages", "Latin Ads",
+    "Unique Pages", "Latin Ads", "Ad Library Link",
 ]
 
 # Header
@@ -172,7 +172,7 @@ from collections import defaultdict
 
 cand_data: dict = defaultdict(lambda: {
     "party": "", "district": "",
-    "total": 0, "active": 0, "stopped": 0,
+    "total": 0, "active": 0, "inactive": 0, "removed": 0,
     "impr_min": 0, "impr_max": 0,
     "spend_min": 0, "spend_max": 0,
     "currency": "",
@@ -187,10 +187,14 @@ for r in filtered:
     d["party"]    = r.get("party") or d["party"]
     d["district"] = r.get("district") or d["district"]
     d["total"]   += 1
-    if r.get("ad_stop_date"):
-        d["stopped"] += 1
+    is_removed  = r.get("removed") == 1
+    has_stopped = bool(r.get("ad_stop_date"))
+    if is_removed:
+        d["removed"]  += 1
+    elif has_stopped:
+        d["inactive"] += 1
     else:
-        d["active"]  += 1
+        d["active"]   += 1
     d["impr_min"]  += r.get("impressions_min") or 0
     d["impr_max"]  += r.get("impressions_max") or 0
     d["spend_min"] += r.get("spend_min") or 0
@@ -206,14 +210,24 @@ for r in filtered:
 # Sort by total ads descending
 sorted_cands = sorted(cand_data.items(), key=lambda x: x[1]["total"], reverse=True)
 
+right = Alignment(horizontal="right")
+
 for name, d in sorted_cands:
-    ws2.append([
+    page_id = next(iter(d["pages"]), None)
+    ad_lib_url = (
+        f"https://www.facebook.com/ads/library/?active_status=all&ad_type=all"
+        f"&country=CY&media_type=all&view_all_page_id={page_id}"
+    ) if page_id else ""
+
+    row_idx = ws2.max_row + 1
+    row_data = [
         name,
         d["party"],
-        d["district"],
+        d["district"] or None,
         d["total"],
         d["active"],
-        d["stopped"],
+        d["inactive"],
+        d["removed"] or None,
         d["impr_min"] or None,
         d["impr_max"] or None,
         d["spend_min"] or None,
@@ -221,19 +235,22 @@ for name, d in sorted_cands:
         d["currency"] or None,
         len(d["pages"]),
         d["latin"] or None,
-    ])
+        "Ad Library" if ad_lib_url else None,
+    ]
+    for col_idx, val in enumerate(row_data, 1):
+        cell = ws2.cell(row=row_idx, column=col_idx, value=val)
+        if col_idx >= 4:
+            cell.alignment = right
+        if col_idx == 15 and ad_lib_url:
+            cell.hyperlink = ad_lib_url
+            cell.font = Font(color="0563C1", underline="single")
+            cell.alignment = Alignment(horizontal="center")
 
 # Bold header, freeze, column widths
 ws2.freeze_panes = "A2"
-sum_widths = [30, 10, 15, 11, 11, 11, 22, 22, 18, 18, 9, 13, 10]
+sum_widths = [30, 10, 15, 11, 11, 11, 11, 22, 22, 18, 18, 9, 13, 10, 14]
 for i, w in enumerate(sum_widths, 1):
     ws2.column_dimensions[get_column_letter(i)].width = w
-
-# Right-align numeric columns (4 onwards)
-right = Alignment(horizontal="right")
-for row in ws2.iter_rows(min_row=2):
-    for cell in row[3:]:   # columns D onwards
-        cell.alignment = right
 
 wb.save(OUT_FILE)
 print(f"\nDone! Saved to: {OUT_FILE}")
