@@ -99,8 +99,19 @@ def autofit(ws, max_width=55):
 
 # ── data queries ──────────────────────────────────────────────────────────────
 
+def _exec(conn, sql, params=()):
+    """Execute sql, auto-migrating if election_related column is missing."""
+    try:
+        return conn.execute(sql, params).fetchall()
+    except sqlite3.OperationalError as e:
+        if "election_related" in str(e):
+            migrate_db(conn)
+            return conn.execute(sql, params).fetchall()
+        raise
+
+
 def party_overview(conn, today):
-    return conn.execute("""
+    sql = """
         SELECT
             COALESCE(party,'Unknown')                                         AS party,
             SUM(CASE WHEN removed=0
@@ -118,11 +129,12 @@ def party_overview(conn, today):
           AND ad_start_date >= '2025-10-01'
         GROUP BY party
         ORDER BY total DESC
-    """, (today, today)).fetchall()
+    """
+    return _exec(conn, sql, (today, today))
 
 
 def top_politicians(conn, today, order_col, limit=30):
-    return conn.execute(f"""
+    sql = f"""
         SELECT
             politician_query,
             party,
@@ -144,11 +156,12 @@ def top_politicians(conn, today, order_col, limit=30):
         GROUP BY politician_query
         ORDER BY {order_col} DESC
         LIMIT {limit}
-    """, (today, today)).fetchall()
+    """
+    return _exec(conn, sql, (today, today))
 
 
 def active_ads(conn, today):
-    return conn.execute("""
+    sql = """
         SELECT
             ad_archive_id, politician_query, party, district,
             page_name, ad_start_date,
@@ -160,11 +173,12 @@ def active_ads(conn, today):
           AND (ad_stop_date IS NULL OR ad_stop_date='' OR ad_stop_date>=?)
           AND ad_start_date >= '2025-10-01'
         ORDER BY ad_start_date DESC
-    """, (today,)).fetchall()
+    """
+    return _exec(conn, sql, (today,))
 
 
 def removed_ads(conn):
-    return conn.execute("""
+    sql = """
         SELECT
             ad_archive_id, politician_query, party, district,
             page_name, ad_start_date, removed_checked_at,
@@ -175,7 +189,8 @@ def removed_ads(conn):
           AND removed=1
           AND ad_start_date >= '2025-10-01'
         ORDER BY removed_checked_at DESC
-    """).fetchall()
+    """
+    return _exec(conn, sql)
 
 
 # ── sheet builders ────────────────────────────────────────────────────────────
