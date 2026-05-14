@@ -1,0 +1,65 @@
+name: Cyprus Ads — 3-Hour Refresh
+
+on:
+  schedule:
+    - cron: '0 0,3,6,9,12,15,18,21 * * *'   # every 3 hours
+  workflow_dispatch:                           # allow manual trigger from GitHub UI
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      # ── 1. Checkout repo (with DB) ──────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 2. Python setup ─────────────────────────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install requests python-dotenv openpyxl anthropic playwright
+          playwright install chromium --with-deps
+
+      # ── 3. Fetch new ads (today only) ───────────────────────────────────────
+      - name: Fetch new ads
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: python fetch_by_page_ids_cy.py --since $(date +%Y-%m-%d)
+
+      # ── 4. Classify unclassified ads ────────────────────────────────────────
+      - name: Classify new ads
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: python classify_ads.py --country CY
+
+      # ── 5. Check for Meta removals ──────────────────────────────────────────
+      - name: Check removed ads
+        run: python check_removed_ads_cy.py
+
+      # ── 6. Generate 3-hour report ───────────────────────────────────────────
+      - name: Generate 3h report
+        run: python daily_report_cy.py --hours 3
+
+      # ── 7. Refresh summary Excel ────────────────────────────────────────────
+      - name: Refresh summary Excel
+        run: python make_summary_excel.py
+
+      # ── 8. Commit updated DB + reports back to repo ─────────────────────────
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add politician_ads.db
+          git add daily_report_*.xlsx summary_*.xlsx 2>/dev/null || true
+          git diff --staged --quiet && echo "Nothing changed." || \
+            git commit -m "auto: 3h refresh $(date -u +%Y-%m-%dT%H:%M)Z" && git push
