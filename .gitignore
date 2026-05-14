@@ -4,8 +4,8 @@
 # Cyprus DB — tracked so Streamlit can read it
 # politician_ads.db
 
-# Excel outputs
-*.xlsx
+# Excel outputs — allow report files to be committed
+# *.xlsx
 
 # Logs
 *.log

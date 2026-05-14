@@ -60,6 +60,6 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add politician_ads.db
-          git add daily_report_*.xlsx summary_*.xlsx 2>/dev/null || true
+          git add daily_report_*.xlsx summary_*.xlsx || true
           git diff --staged --quiet && echo "Nothing changed." || \
             git commit -m "auto: 3h refresh $(date -u +%Y-%m-%dT%H:%M)Z" && git push
