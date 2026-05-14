@@ -78,12 +78,12 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git pull --rebase origin main
           git add politician_ads.db || true
           git add daily_report_*.xlsx summary_*.xlsx || true
           if git diff --staged --quiet; then
             echo "Nothing changed — skipping commit."
           else
             git commit -m "auto(CY): 3h refresh $(date -u +%Y-%m-%dT%H:%M)Z"
+            git pull --rebase origin main
             git push
           fi
