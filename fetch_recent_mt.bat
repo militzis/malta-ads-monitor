@@ -24,14 +24,20 @@ if %ERRORLEVEL% neq 0 (
 )
 
 echo.
-echo -- Step 2: Checking for removed ads --
+echo -- Step 2: Classifying new ads --
+python classify_ads.py --country MT
+if %ERRORLEVEL% neq 0 (
+    echo WARNING in Step 2 -- continuing anyway.
+)
+
+echo -- Step 3: Checking for removed ads --
 python check_removed_ads_mt.py
 if %ERRORLEVEL% neq 0 (
     echo WARNING in Step 2 -- continuing anyway.
 )
 
 echo.
-echo -- Step 3: Refreshing summary Excel --
+echo -- Step 4: Refreshing summary Excel --
 python make_summary_excel.py
 if %ERRORLEVEL% neq 0 (
     echo WARNING in Step 3 -- summary Excel not generated.

@@ -64,7 +64,14 @@ jobs:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
         run: python check_all_candidates_mt.py
 
-      # ── 8. Check MT removals ────────────────────────────────────────────────
+      # ── 8. Classify unclassified MT ads ─────────────────────────────────────
+      - name: MT — Classify new ads
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: python classify_ads.py --country MT
+
+      # ── 9. Check MT removals ────────────────────────────────────────────────
       - name: MT — Check removed ads
         run: python check_removed_ads_mt.py
 
@@ -81,7 +88,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add politician_ads.db politician_ads_mt.db
+          git add politician_ads.db politician_ads_mt.db fetch_state.json
           git add daily_report_*.xlsx summary_*.xlsx || true
           git diff --staged --quiet && echo "Nothing changed." || \
             git commit -m "auto: 3h refresh $(date -u +%Y-%m-%dT%H:%M)Z" && git push
