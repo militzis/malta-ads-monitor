@@ -63,7 +63,7 @@ jobs:
 
       # ── 5. Check CY removals ────────────────────────────────────────────────
       - name: CY — Check removed ads
-        run: python check_removed_ads_cy.py
+        run: python check_removed_ads_cy.py --concurrency 5 --recheck-days 14 --limit 200
 
       # ── 6. Generate CY 3-hour report ────────────────────────────────────────
       - name: CY — Generate 3h report
@@ -88,7 +88,7 @@ jobs:
 
       # ── 9. Check MT removals ────────────────────────────────────────────────
       - name: MT — Check removed ads
-        run: python check_removed_ads_mt.py
+        run: python check_removed_ads_mt.py --concurrency 5 --recheck-days 14 --limit 200
 
       # ════════════════════════════════════════════════════════════════════════
       # SHARED
