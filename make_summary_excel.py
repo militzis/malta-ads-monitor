@@ -298,6 +298,13 @@ def main():
     parser.add_argument("--out", default=BASE, help="Output folder")
     args = parser.parse_args()
 
+    # ── Migrate both DBs upfront — ensures election_related column exists ───
+    for db_path in [DB_CY, DB_MT]:
+        if os.path.exists(db_path):
+            conn = sqlite3.connect(db_path)
+            migrate_db(conn)
+            conn.close()
+
     try:
         import openpyxl
         from openpyxl.styles import Font, PatternFill
