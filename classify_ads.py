@@ -33,6 +33,19 @@ load_dotenv(override=True)
 BASE       = os.path.dirname(os.path.abspath(__file__))
 DB_PATH    = os.path.join(BASE, "politician_ads.db")
 DB_PATH_MT = os.path.join(BASE, "politician_ads_mt.db")
+BL_CY      = os.path.join(BASE, "page_blocklist.json")
+BL_MT      = os.path.join(BASE, "page_blocklist_mt.json")
+
+
+def load_blocklist(path: str) -> set:
+    """Return set of blocked page IDs from a blocklist JSON file."""
+    if not os.path.exists(path):
+        return set()
+    import json
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    pages = data.get("pages", data) if isinstance(data, dict) else {}
+    return set(str(k) for k in pages.keys())
 
 # ── Election keywords ─────────────────────────────────────────────────────────
 # Greek/Cypriot terms
@@ -84,7 +97,7 @@ def ensure_columns(conn: sqlite3.Connection) -> None:
 
 def load_unclassified(conn: sqlite3.Connection, country: str | None,
                       since: str, limit: int | None,
-                      reset_no: bool) -> list[dict]:
+                      reset_no: bool, blocklist: set | None = None) -> list[dict]:
     """Fetch ads that haven't been classified yet (or NO if reset_no)."""
     where_parts = ["ad_start_date >= ?"]
     params: list = [since]
@@ -119,7 +132,14 @@ def load_unclassified(conn: sqlite3.Connection, country: str | None,
     cols = ["ad_archive_id", "politician_query", "party", "district",
             "page_name", "page_id", "source", "ad_text",
             "ad_start_date", "ad_stop_date"]
-    return [dict(zip(cols, r)) for r in rows]
+    ads = [dict(zip(cols, r)) for r in rows]
+    if blocklist:
+        before = len(ads)
+        ads = [a for a in ads if str(a.get("page_id") or "") not in blocklist]
+        skipped = before - len(ads)
+        if skipped:
+            print(f"  [blocklist] Skipped {skipped} ads from blocked pages")
+    return ads
 
 
 def write_result(conn: sqlite3.Connection, ad_id: str,
@@ -253,7 +273,9 @@ def main():
     conn = sqlite3.connect(db_path)
     ensure_columns(conn)
 
-    ads = load_unclassified(conn, args.country, args.since, args.limit, args.reset_no)
+    blocklist = load_blocklist(BL_MT if args.country == "MT" else BL_CY)
+    ads = load_unclassified(conn, args.country, args.since, args.limit, args.reset_no,
+                            blocklist=blocklist)
     total = len(ads)
     country_label = args.country or "CY+MT"
 
