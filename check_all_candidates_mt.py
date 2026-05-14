@@ -362,6 +362,10 @@ def main():
         if filtered:
             print(f"    (filtered {filtered} irrelevant ads)")
 
+        # Also filter page_id_ads through blocklist
+        page_id_ads = [ad for ad in page_id_ads
+                       if str(ad.get("page_id") or "") not in PAGE_BLOCKLIST]
+
         # Merge & deduplicate
         seen: set = set()
         all_ads:  list = []

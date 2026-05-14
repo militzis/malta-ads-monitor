@@ -28,9 +28,19 @@ load_dotenv(override=True)
 
 BASE            = os.path.dirname(os.path.abspath(__file__))
 DB_PATH         = os.path.join(BASE, "politician_ads.db")
+BLOCKLIST_FILE  = os.path.join(BASE, "page_blocklist.json")
 META_URL        = "https://graph.facebook.com/v25.0/ads_archive"
 FULL_START      = "2025-10-01"                                    # used with --full
 DEFAULT_START   = str(date.today() - timedelta(days=14))          # daily default: rolling 14-day window
+
+
+def load_blocklist() -> set:
+    if os.path.exists(BLOCKLIST_FILE):
+        with open(BLOCKLIST_FILE, encoding='utf-8') as f:
+            data = json.load(f)
+            pages = data.get('pages', data) if isinstance(data, dict) else {}
+            return set(str(k) for k in pages.keys())
+    return set()
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -44,8 +54,8 @@ def migrate_db(conn) -> None:
         conn.commit()
 
 
-def load_page_ids(conn) -> list[dict]:
-    """Return all unique page_ids with their best-known candidate metadata."""
+def load_page_ids(conn, blocklist: set) -> list[dict]:
+    """Return unique page_ids that have YES ads — skipping blocked pages."""
     rows = conn.execute("""
         SELECT
             page_id,
@@ -57,12 +67,15 @@ def load_page_ids(conn) -> list[dict]:
             COUNT(*)              AS ads
         FROM politician_ads
         WHERE page_id IS NOT NULL AND page_id != ''
+          AND election_related = 'YES'
         GROUP BY page_id
         ORDER BY ads DESC
     """).fetchall()
-    return [dict(zip(
+    pages = [dict(zip(
         ['page_id','page_name','politician_query','party','district','source','ads'], r
     )) for r in rows]
+    # Skip pages already confirmed irrelevant
+    return [p for p in pages if p['page_id'] not in blocklist]
 
 
 def upsert_ads(conn, ads: list[dict], source: str) -> int:
@@ -187,8 +200,10 @@ def main():
 
     conn = sqlite3.connect(DB_PATH)
     migrate_db(conn)
-    pages = load_page_ids(conn)
+    blocklist = load_blocklist()
+    pages = load_page_ids(conn, blocklist)
     print(f"\nCyprus page-ID re-fetch — {since} onwards{'  [FULL]' if args.full else '  [14-day window]'}")
+    print(f"Blocked pages  : {len(blocklist):,} (skipped)")
     print(f"Pages to fetch : {len(pages):,}")
     print(f"Sleep interval : {args.sleep}s")
     print(f"Estimated time : ~{len(pages) * args.sleep / 60:.0f} min")
