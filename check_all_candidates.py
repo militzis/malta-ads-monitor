@@ -24,7 +24,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
-load_dotenv()
+load_dotenv(override=True)
 
 DB_PATH          = "politician_ads.db"
 META_AD_LIBRARY_URL = "https://graph.facebook.com/v25.0/ads_archive"

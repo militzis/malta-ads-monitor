@@ -48,38 +48,22 @@ def load_data():
         return pd.DataFrame()
 
     conn = sqlite3.connect(DB_PATH)
+    # Use election_related='YES' — pre-classified by AI, cleaned manually
     df = pd.read_sql_query(
-        "SELECT * FROM politician_ads WHERE ad_start_date >= '2025-10-01'", conn
+        "SELECT * FROM politician_ads WHERE election_related='YES' AND ad_start_date >= '2025-10-01'",
+        conn
     )
     conn.close()
 
-    blocklist = load_blocklist()
-
-    # Apply blocklist
-    df = df[~df['page_id'].astype(str).isin(blocklist)].copy()
-
-    # Apply full filters from utils.py (200+ business keywords + exclusions list)
-    if _HAS_UTILS:
-        mask = df.apply(
-            lambda r: (
-                is_excluded(str(r['page_id'] or ''), r['page_name'] or '', _EXCL_IDS, _EXCL_NAMES)
-                or is_business(r['page_name'] or '')
-                or is_non_political_by_category(str(r['page_id'] or ''), _PAGE_CATS)
-            ), axis=1
-        )
-        df = df[~mask].copy()
-    else:
-        # Fallback if utils.py not available
-        df = df[~df['page_name'].str.contains(
-            r'\b(ltd|llc|restaurant|cafe|bar|pharmacy|clinic|hotel|casino)\b',
-            case=False, na=False, regex=True
-        )].copy()
-
-    # Derived columns
+    # Derived columns — candidate name from politician_query (fallback to page_name)
     df['candidate'] = df['politician_query'].str.split('|').str[0].str.strip()
-    df['party']     = df['politician_query'].str.split('|').str[1].str.strip()
-    df['district']  = df['politician_query'].str.split('|').str[2].str.strip() \
-                        .replace('', None)
+    df['candidate'] = df['candidate'].where(df['candidate'] != '', df['page_name'])
+
+    # party / district: use DB columns if populated, else parse from politician_query
+    df['party']    = df['party'].where(df['party'].notna() & (df['party'] != ''),
+                         df['politician_query'].str.split('|').str[1].str.strip())
+    df['district'] = df['district'].where(df['district'].notna() & (df['district'] != ''),
+                         df['politician_query'].str.split('|').str[2].str.strip())
 
     # Removed flag
     if 'removed' not in df.columns:

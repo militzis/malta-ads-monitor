@@ -11,27 +11,38 @@ filtering, 3s sleep instead of 20s).
 798 page IDs × ~3s ≈ 40 minutes.
 
 Usage:
-    python fetch_by_page_ids_cy.py
-    python fetch_by_page_ids_cy.py --since 2025-10-01   # override date
+    python fetch_by_page_ids_cy.py                      # default: last 14 days (fast daily run)
+    python fetch_by_page_ids_cy.py --full               # full history from 2025-10-01
+    python fetch_by_page_ids_cy.py --since 2026-01-01   # custom start date
     python fetch_by_page_ids_cy.py --sleep 2            # sleep between pages
 """
 
 import os, sys, sqlite3, json, time, argparse, requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, date
 from dotenv import load_dotenv
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
-load_dotenv()
+load_dotenv(override=True)
 
 BASE            = os.path.dirname(os.path.abspath(__file__))
 DB_PATH         = os.path.join(BASE, "politician_ads.db")
 META_URL        = "https://graph.facebook.com/v25.0/ads_archive"
-DEFAULT_START   = "2025-10-01"
+FULL_START      = "2025-10-01"                                    # used with --full
+DEFAULT_START   = str(date.today() - timedelta(days=14))          # daily default: rolling 14-day window
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
+
+def migrate_db(conn) -> None:
+    """Add first_seen_at column if it doesn't exist yet."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(politician_ads)").fetchall()}
+    if "first_seen_at" not in cols:
+        conn.execute("ALTER TABLE politician_ads ADD COLUMN first_seen_at TEXT")
+        print("[db] Added column: first_seen_at")
+        conn.commit()
+
 
 def load_page_ids(conn) -> list[dict]:
     """Return all unique page_ids with their best-known candidate metadata."""
@@ -72,8 +83,9 @@ def upsert_ads(conn, ads: list[dict], source: str) -> int:
                      impressions_min, impressions_max,
                      spend_min, spend_max, currency,
                      snapshot_url, checked_at, source,
-                     removed, removed_checked_at, ad_text)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     removed, removed_checked_at, ad_text,
+                     first_seen_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(ad_archive_id) DO UPDATE SET
                     impressions_min  = excluded.impressions_min,
                     impressions_max  = excluded.impressions_max,
@@ -82,6 +94,7 @@ def upsert_ads(conn, ads: list[dict], source: str) -> int:
                     ad_stop_date     = excluded.ad_stop_date,
                     page_name        = excluded.page_name,
                     checked_at       = excluded.checked_at
+                    -- first_seen_at intentionally NOT updated: set once on first insert
             """, (
                 ad.get("id"),
                 ad.get("_query"),
@@ -103,6 +116,7 @@ def upsert_ads(conn, ads: list[dict], source: str) -> int:
                 source,
                 0, None,
                 ad_text,
+                now,   # first_seen_at — only written on first INSERT
             ))
             saved += 1
         except sqlite3.Error as e:
@@ -152,19 +166,29 @@ def fetch_page(page_id: str, since_date: str, token: str) -> list[dict]:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--since", default=DEFAULT_START,
-                        help=f"Fetch ads from this date (default: {DEFAULT_START})")
+    parser.add_argument("--since", default=None,
+                        help=f"Fetch ads from this date (default: rolling 14-day window)")
+    parser.add_argument("--full",  action="store_true",
+                        help=f"Full history fetch from {FULL_START} (slow, use occasionally)")
     parser.add_argument("--sleep", type=float, default=3.0,
                         help="Sleep between page requests in seconds (default: 3)")
     args = parser.parse_args()
+
+    if args.full:
+        since = FULL_START
+    elif args.since:
+        since = args.since
+    else:
+        since = DEFAULT_START  # rolling 14-day window
 
     token = os.environ.get("META_ACCESS_TOKEN")
     if not token:
         sys.exit("ERROR: META_ACCESS_TOKEN not set in .env")
 
     conn = sqlite3.connect(DB_PATH)
+    migrate_db(conn)
     pages = load_page_ids(conn)
-    print(f"\nCyprus page-ID re-fetch — {args.since} onwards")
+    print(f"\nCyprus page-ID re-fetch — {since} onwards{'  [FULL]' if args.full else '  [14-day window]'}")
     print(f"Pages to fetch : {len(pages):,}")
     print(f"Sleep interval : {args.sleep}s")
     print(f"Estimated time : ~{len(pages) * args.sleep / 60:.0f} min")
@@ -179,7 +203,7 @@ def main():
         cand   = query.split("|")[0][:30]
         source = page["source"] or "greek"
 
-        ads = fetch_page(pid, args.since, token)
+        ads = fetch_page(pid, since, token)
 
         for ad in ads:
             ad["_query"]    = query

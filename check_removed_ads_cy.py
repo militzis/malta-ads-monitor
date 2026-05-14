@@ -20,7 +20,7 @@ Requires:
 """
 
 import sys, os, sqlite3, json, asyncio, argparse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, date
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -76,20 +76,62 @@ def migrate_db(conn):
     conn.commit()
 
 
-def load_ads(conn, blocklist: set, only_unchecked: bool, since: str, limit: int) -> list[dict]:
+def load_ads(conn, blocklist: set, only_unchecked: bool, since: str, limit: int,
+             active_only: bool = True, recheck_days: int = 7) -> list[dict]:
+    """
+    Load ads to check for removal.
+
+    active_only  — skip ads whose stop_date has already passed (default: True).
+                   Stopped ads are irrelevant for daily monitoring.
+    recheck_days — also re-check ads confirmed active (removed=0) if they
+                   haven't been checked in this many days (default: 7).
+                   Set to 0 to disable re-checking.
+    """
+    today_str = str(date.today())
+
+    # ── filters ──────────────────────────────────────────────────────────────
+    # Skip confirmed non-election ads — unclassified (NULL) still included.
+    er_filter = "AND (election_related IS NULL OR election_related != 'NO')"
+
+    # Only ads that are still running (no past stop_date)
+    active_filter = (
+        f"AND (ad_stop_date IS NULL OR ad_stop_date = '' OR ad_stop_date >= '{today_str}')"
+        if active_only else ""
+    )
+
     if only_unchecked:
-        sql = """
+        if recheck_days > 0:
+            # Include: (a) never checked  OR  (b) active but stale (checked > N days ago)
+            recheck_cutoff = (
+                datetime.now(timezone.utc) - timedelta(days=recheck_days)
+            ).isoformat()
+            unchecked_clause = f"""(
+                removed_checked_at IS NULL
+                OR (removed = 0 AND removed_checked_at < '{recheck_cutoff}')
+            )"""
+        else:
+            # Only truly unchecked
+            unchecked_clause = "removed_checked_at IS NULL"
+
+        sql = f"""
             SELECT ad_archive_id, page_id, page_name, politician_query, ad_start_date
             FROM politician_ads
-            WHERE removed_checked_at IS NULL
+            WHERE {unchecked_clause}
+              {active_filter}
+              {er_filter}
             ORDER BY ad_start_date DESC
         """
     else:
-        sql = """
+        # --all: re-check everything (respects active_only and er_filter)
+        sql = f"""
             SELECT ad_archive_id, page_id, page_name, politician_query, ad_start_date
             FROM politician_ads
+            WHERE 1=1
+              {active_filter}
+              {er_filter}
             ORDER BY ad_start_date DESC
         """
+
     rows = [dict(zip(['ad_archive_id','page_id','page_name','politician_query','ad_start_date'], r))
             for r in conn.execute(sql).fetchall()]
 
@@ -240,19 +282,24 @@ async def run(rows: list[dict], concurrency: int):
 
 def main():
     parser = argparse.ArgumentParser(description="Check Cyprus ads for Meta removal")
-    parser.add_argument('--all',         action='store_true',
-                        help='Re-check all ads (default: only unchecked)')
-    parser.add_argument('--since',       default='2025-10-01',
+    parser.add_argument('--all',           action='store_true',
+                        help='Re-check all ads (default: only unchecked + stale active)')
+    parser.add_argument('--since',         default='2025-10-01',
                         help='Only check ads with start_date >= DATE (default: 2025-10-01)')
-    parser.add_argument('--no-since',    action='store_true',
+    parser.add_argument('--no-since',      action='store_true',
                         help='Ignore the since date filter — check all dates')
-    parser.add_argument('--concurrency', type=int, default=2,
+    parser.add_argument('--concurrency',   type=int, default=2,
                         help='Parallel browser pages (default: 2)')
-    parser.add_argument('--limit',       type=int, default=0,
+    parser.add_argument('--limit',         type=int, default=0,
                         help='Max ads to check (0 = no limit)')
+    parser.add_argument('--recheck-days',  type=int, default=7,
+                        help='Re-check active ads not checked in N days (default: 7, 0=disable)')
+    parser.add_argument('--include-stopped', action='store_true',
+                        help='Also check ads whose stop_date has passed (default: skip them)')
     args = parser.parse_args()
 
-    since = '' if args.no_since else args.since
+    since       = '' if args.no_since else args.since
+    active_only = not args.include_stopped
 
     blocklist = load_blocklist()
     print(f"Loaded {len(blocklist)} blocked page IDs")
@@ -260,7 +307,8 @@ def main():
     conn = sqlite3.connect(DB_PATH)
     migrate_db(conn)
     rows = load_ads(conn, blocklist, only_unchecked=not args.all,
-                   since=since, limit=args.limit)
+                    since=since, limit=args.limit,
+                    active_only=active_only, recheck_days=args.recheck_days)
     conn.close()
 
     if not rows:
@@ -268,8 +316,10 @@ def main():
         print(f"Nothing to check ({scope}). Use --all to re-check or --no-since to widen date range.")
         return
 
-    scope_msg = f"since {since}" if since else "all dates"
-    print(f"\nAds to check: {len(rows):,}  ({scope_msg},  concurrency={args.concurrency})")
+    active_msg  = "active only" if active_only else "incl. stopped"
+    recheck_msg = f"re-check every {args.recheck_days}d" if args.recheck_days else "no re-check"
+    scope_msg   = f"since {since}" if since else "all dates"
+    print(f"\nAds to check: {len(rows):,}  ({scope_msg} · {active_msg} · {recheck_msg} · concurrency={args.concurrency})")
     print("─" * 60)
 
     removed_ids, active_ids, error_ids = asyncio.run(run(rows, args.concurrency))

@@ -25,7 +25,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
-load_dotenv()
+load_dotenv(override=True)
 
 DB_PATH             = "politician_ads_mt.db"
 META_AD_LIBRARY_URL = "https://graph.facebook.com/v25.0/ads_archive"
@@ -122,9 +122,15 @@ def init_db():
             source           TEXT DEFAULT 'mt',
             removed          INTEGER DEFAULT 0,
             removed_checked_at TEXT,
-            ad_text          TEXT
+            ad_text          TEXT,
+            first_seen_at    TEXT
         )
     """)
+    # Migrate existing DBs that predate first_seen_at
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(politician_ads)").fetchall()}
+    if "first_seen_at" not in cols:
+        conn.execute("ALTER TABLE politician_ads ADD COLUMN first_seen_at TEXT")
+        print("[db] Added column: first_seen_at")
     conn.commit()
     conn.close()
 
@@ -149,8 +155,9 @@ def upsert_ads(ads: list[dict]) -> int:
                      impressions_min, impressions_max,
                      spend_min, spend_max, currency,
                      snapshot_url, checked_at, source,
-                     removed, removed_checked_at, ad_text)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     removed, removed_checked_at, ad_text,
+                     first_seen_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(ad_archive_id) DO UPDATE SET
                     impressions_min     = excluded.impressions_min,
                     impressions_max     = excluded.impressions_max,
@@ -159,6 +166,7 @@ def upsert_ads(ads: list[dict]) -> int:
                     ad_stop_date        = excluded.ad_stop_date,
                     page_name           = excluded.page_name,
                     checked_at          = excluded.checked_at
+                    -- first_seen_at intentionally NOT updated
             """, (
                 ad.get("id"),
                 ad.get("_query"),
@@ -181,6 +189,7 @@ def upsert_ads(ads: list[dict]) -> int:
                 0,
                 None,
                 ad_text,
+                now,   # first_seen_at — set once on first INSERT only
             ))
             inserted += 1
         except sqlite3.Error as e:

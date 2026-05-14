@@ -18,7 +18,7 @@ from utils import is_business, is_excluded, is_non_political_by_category, load_e
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
-load_dotenv()
+load_dotenv(override=True)
 
 BASE    = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE, "politician_ads.db")
