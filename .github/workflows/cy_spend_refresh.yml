@@ -1,0 +1,62 @@
+name: Cyprus Ads — Daily Spend Refresh
+
+on:
+  schedule:
+    - cron: '0 2 * * *'   # 02:00 UTC daily (between the 00:00 and 03:00 CY runs)
+  workflow_dispatch:
+
+jobs:
+  spend_refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      # ── 1. Checkout ─────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 2. Python setup ──────────────────────────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: pip install requests python-dotenv openpyxl anthropic
+
+      # ════════════════════════════════════════════════════════════════════════
+      # Re-fetch last 14 days for all known CY pages to update
+      # impression and spend figures for currently running campaigns
+      # ════════════════════════════════════════════════════════════════════════
+
+      - name: CY — Refresh spend/impressions (14-day window)
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: python fetch_by_page_ids_cy.py
+
+      - name: Refresh summary Excel
+        run: python make_summary_excel.py
+
+      # ── Commit ───────────────────────────────────────────────────────────────
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -u
+          git add summary_*.xlsx || true
+          if git diff --staged --quiet; then
+            echo "Nothing changed — skipping commit."
+          else
+            git commit -m "auto(CY): daily spend refresh $(date -u +%Y-%m-%dT%H:%M)Z"
+            if git pull --rebase origin main; then
+              git push
+            else
+              git rebase --abort
+              echo "Rebase conflict — skipping push this run, will retry next run."
+            fi
+          fi
