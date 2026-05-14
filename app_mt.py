@@ -35,7 +35,7 @@ def load_data():
 
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query(
-        "SELECT * FROM politician_ads WHERE ad_start_date >= '2025-10-01'", conn
+        "SELECT * FROM politician_ads WHERE election_related = 'YES' AND ad_start_date >= '2025-10-01'", conn
     )
     conn.close()
 

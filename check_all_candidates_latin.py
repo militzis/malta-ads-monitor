@@ -259,7 +259,8 @@ def upsert_ads(ads: list[dict]) -> int:
                     spend_max           = excluded.spend_max,
                     ad_stop_date        = excluded.ad_stop_date,
                     page_name           = excluded.page_name,
-                    checked_at          = excluded.checked_at
+                    checked_at          = excluded.checked_at,
+                    ad_text             = excluded.ad_text
             """, (
                 ad.get("id"),
                 ad.get("_query"),

@@ -33,7 +33,7 @@ def migrate_db(conn):
     """Add election_related column if missing (needed for Malta DB)."""
     cols = {r[1] for r in conn.execute("PRAGMA table_info(politician_ads)").fetchall()}
     if "election_related" not in cols:
-        conn.execute("ALTER TABLE politician_ads ADD COLUMN election_related TEXT DEFAULT 'YES'")
+        conn.execute("ALTER TABLE politician_ads ADD COLUMN election_related TEXT")
         conn.commit()
 
 
@@ -82,12 +82,13 @@ def apply_styles(wb):
 def write_header(ws, headers, fill, font):
     from openpyxl.styles import Alignment
     ws.append(headers)
-    for cell in ws[1]:
+    hdr_row = ws.max_row   # always style the row just appended, not ws[1]
+    for cell in ws[hdr_row]:
         cell.fill  = fill
         cell.font  = font
         cell.alignment = Alignment(horizontal="center", wrap_text=True)
-    ws.row_dimensions[1].height = 22
-    ws.freeze_panes = "A2"
+    ws.row_dimensions[hdr_row].height = 22
+    ws.freeze_panes = f"A{hdr_row + 1}"
 
 
 def autofit(ws, max_width=55):

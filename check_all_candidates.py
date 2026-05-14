@@ -203,7 +203,8 @@ def upsert_ads(ads: list[dict]) -> int:
                     spend_max           = excluded.spend_max,
                     ad_stop_date        = excluded.ad_stop_date,
                     page_name           = excluded.page_name,
-                    checked_at          = excluded.checked_at
+                    checked_at          = excluded.checked_at,
+                    ad_text             = excluded.ad_text
             """, (
                 ad.get("id"),
                 ad.get("_query"),
@@ -392,11 +393,12 @@ def main():
 
     # ── Chunk mode: auto-advance through candidate list across runs ───────────
     chunk_complete = False   # set True when this run finishes the final chunk
+    total_candidates = len(candidates)
     if args.chunk_size > 0:
         chunk_pos = load_chunk_pos("greek")
         # Guard: if chunk_pos is beyond the list (e.g. list shrank), reset
-        if chunk_pos >= len(candidates):
-            print(f"[chunk] Position {chunk_pos} beyond list size {len(candidates)} — resetting to 0")
+        if chunk_pos >= total_candidates:
+            print(f"[chunk] Position {chunk_pos} beyond list size {total_candidates} — resetting to 0")
             chunk_pos = 0
         chunk_end = chunk_pos + args.chunk_size
         chunk = candidates[chunk_pos:chunk_end]
@@ -497,7 +499,7 @@ def main():
             save_fetch_date("greek")
             print("[state] Full cycle complete — since_date advanced.")
         else:
-            print(f"[state] Partial cycle — since_date unchanged until all {len(candidates)} done.")
+            print(f"[state] Partial cycle — since_date unchanged until all {total_candidates} done.")
     else:
         save_fetch_date("greek")
 

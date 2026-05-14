@@ -131,6 +131,9 @@ def init_db():
     if "first_seen_at" not in cols:
         conn.execute("ALTER TABLE politician_ads ADD COLUMN first_seen_at TEXT")
         print("[db] Added column: first_seen_at")
+    if "election_related" not in cols:
+        conn.execute("ALTER TABLE politician_ads ADD COLUMN election_related TEXT")
+        print("[db] Added column: election_related")
     conn.commit()
     conn.close()
 
@@ -165,7 +168,8 @@ def upsert_ads(ads: list[dict]) -> int:
                     spend_max           = excluded.spend_max,
                     ad_stop_date        = excluded.ad_stop_date,
                     page_name           = excluded.page_name,
-                    checked_at          = excluded.checked_at
+                    checked_at          = excluded.checked_at,
+                    ad_text             = excluded.ad_text
                     -- first_seen_at intentionally NOT updated
             """, (
                 ad.get("id"),
@@ -352,9 +356,9 @@ def main():
             text   = bodies + " " + titles
             if any(p in page for p in name_parts):
                 return True
-            name_in_text  = any(p in text for p in name_parts)
-            party_in_text = any(t in text for t in party_terms) if party_terms else True
-            return name_in_text and party_in_text
+            all_name_in_text = all(p in text for p in name_parts) if name_parts else False
+            party_in_text    = any(t in text for t in party_terms) if party_terms else True
+            return all_name_in_text and party_in_text
 
         before   = len(name_ads)
         name_ads = [ad for ad in name_ads if ad_is_relevant(ad)]
