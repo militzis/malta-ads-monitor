@@ -146,7 +146,7 @@ col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
 col1.metric("Total Ads",    f"{len(df):,}")
 col2.metric("Candidates",   f"{df['candidate'].nunique():,}")
 col3.metric("Unique Pages", f"{df['page_id'].nunique():,}")
-col4.metric("Active",       f"{int(df['ad_stop_date'].isna().sum() - (df['removed']==1).sum()):,}")
+col4.metric("Active",       f"{int((df['ad_stop_date'].isna() & (df['removed'] != 1)).sum()):,}")
 
 inactive_n = int((df['ad_stop_date'].notna() & (df['removed'] != 1)).sum())
 col5.metric("Inactive", f"{inactive_n:,}")
