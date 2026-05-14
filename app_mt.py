@@ -151,7 +151,7 @@ if search:
 # ── Top metrics ───────────────────────────────────────────────────────────────
 col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
 col1.metric("Total Ads",    f"{len(df):,}")
-col2.metric("Candidates",   f"{df['candidate'].nunique():,}")
+col2.metric("Candidate Pages", f"{df['candidate'].nunique():,}")
 col3.metric("Unique Pages", f"{df['page_id'].nunique():,}")
 col4.metric("Active",       f"{int((df['ad_stop_date'].isna() & (df['removed'] != 1)).sum()):,}")
 
