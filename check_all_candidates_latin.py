@@ -81,6 +81,32 @@ def save_fetch_date(script_key: str):
         json.dump(state, f, indent=2)
     print(f"[state] Saved last-run date for '{script_key}': {state[script_key]}")
 
+
+def load_chunk_pos(script_key: str) -> int:
+    """Return the next candidate index to process for chunked runs."""
+    if os.path.exists(FETCH_STATE_FILE):
+        try:
+            with open(FETCH_STATE_FILE, encoding='utf-8') as f:
+                return int(json.load(f).get(f"{script_key}_chunk_pos", 0))
+        except Exception:
+            pass
+    return 0
+
+
+def save_chunk_pos(script_key: str, pos: int):
+    """Persist the next chunk start position."""
+    state = {}
+    if os.path.exists(FETCH_STATE_FILE):
+        try:
+            with open(FETCH_STATE_FILE, encoding='utf-8') as f:
+                state = json.load(f)
+        except Exception:
+            pass
+    state[f"{script_key}_chunk_pos"] = pos
+    with open(FETCH_STATE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(state, f, indent=2)
+    print(f"[state] Chunk position for '{script_key}': {pos}")
+
 # ─── Transliteration ──────────────────────────────────────────────────────────
 
 # Digraphs must be checked before single characters
@@ -340,8 +366,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--country", default="CY")
     parser.add_argument("--parties", nargs="+", help="Only process these parties")
-    parser.add_argument("--start", type=int, default=1, help="Start from candidate number N (default: 1)")
+    parser.add_argument("--start", type=int, default=1, help="Start from candidate number N (default: 1, manual override)")
     parser.add_argument("--full", action="store_true", help="Ignore saved state and fetch everything from DEFAULT_START")
+    parser.add_argument("--chunk-size", type=int, default=0,
+                        help="Process N candidates per run, auto-advancing position each run (0=all, default: 0)")
     args = parser.parse_args()
 
     if not os.path.exists(CANDIDATES_FILE):
@@ -357,7 +385,19 @@ def main():
         candidates = [c for c in candidates if c.get("party", "").strip() in parties_filter]
         print(f"\nFiltering to parties: {', '.join(parties_filter)}")
 
-    if args.start > 1:
+    # ── Chunk mode: auto-advance through candidate list across runs ───────────
+    chunk_complete = False
+    if args.chunk_size > 0:
+        chunk_pos = load_chunk_pos("latin")
+        chunk_end = chunk_pos + args.chunk_size
+        chunk = candidates[chunk_pos:chunk_end]
+        next_pos = chunk_end if chunk_end < len(candidates) else 0
+        print(f"\n[chunk] Position {chunk_pos}–{chunk_pos + len(chunk) - 1} of {len(candidates)} "
+              f"(next run starts at {next_pos if next_pos else 0})")
+        candidates = chunk
+        if next_pos == 0:
+            chunk_complete = True
+    elif args.start > 1:
         candidates = candidates[args.start - 1:]
         print(f"\nStarting from candidate #{args.start}")
 
@@ -421,8 +461,16 @@ def main():
         if i < len(candidates):
             time.sleep(20)
 
-    # ── Save last-run date so next run is incremental ─────────────────────────
-    save_fetch_date("latin")
+    # ── Save state ────────────────────────────────────────────────────────────
+    if args.chunk_size > 0:
+        save_chunk_pos("latin", next_pos)
+        if chunk_complete:
+            save_fetch_date("latin")
+            print("[state] Full cycle complete — since_date advanced.")
+        else:
+            print(f"[state] Partial cycle — since_date unchanged until all candidates done.")
+    else:
+        save_fetch_date("latin")
 
     print_report()
 

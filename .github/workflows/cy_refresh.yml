@@ -49,10 +49,20 @@ jobs:
       # CYPRUS
       # ════════════════════════════════════════════════════════════════════════
 
-      - name: CY — Fetch new ads
+      - name: CY — Fetch new ads (known pages)
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
         run: python fetch_by_page_ids_cy.py --since $(date +%Y-%m-%d)
+
+      - name: CY — Scan candidate list chunk (Greek names)
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: python check_all_candidates.py --chunk-size 93
+
+      - name: CY — Scan candidate list chunk (Latin names)
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: python check_all_candidates_latin.py --chunk-size 93
 
       - name: CY — Classify new ads
         env:
