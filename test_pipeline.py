@@ -703,6 +703,269 @@ class TestSchema(unittest.TestCase):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 10. CLASSIFY — blocklist filtering in load_unclassified (new)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def make_classify_db():
+    """In-memory DB with election_related column (needed for classify tests)."""
+    conn = sqlite3.connect(":memory:")
+    conn.execute("""
+        CREATE TABLE politician_ads (
+            ad_archive_id     TEXT PRIMARY KEY,
+            politician_query  TEXT,
+            party             TEXT,
+            district          TEXT,
+            page_name         TEXT,
+            page_id           TEXT,
+            source            TEXT DEFAULT 'malta',
+            ad_text           TEXT,
+            ad_start_date     TEXT DEFAULT '2026-01-01',
+            ad_stop_date      TEXT,
+            removed           INTEGER DEFAULT 0,
+            election_related  TEXT,
+            ai_reason         TEXT,
+            checked_at        TEXT DEFAULT '2026-01-01'
+        )
+    """)
+    conn.commit()
+    return conn
+
+
+def load_unclassified_mirror(conn, country, since, limit, reset_no, blocklist=None):
+    """
+    Mirror of classify_ads.load_unclassified() — kept in sync with script.
+    Tests this logic without importing the actual module.
+    """
+    where_parts = ["ad_start_date >= ?"]
+    params = [since]
+
+    if country == "CY":
+        where_parts.append("source IN ('greek','latin','page_id_cy')")
+    elif country == "MT":
+        where_parts.append("source IN ('malta','page_id_mt','mt')")
+
+    if reset_no:
+        where_parts.append("(election_related IS NULL OR election_related = 'NO')")
+    else:
+        where_parts.append("election_related IS NULL")
+
+    where_parts.append("removed = 0")
+
+    sql = f"""
+        SELECT ad_archive_id, politician_query, party, district,
+               page_name, page_id, source, ad_text, ad_start_date, ad_stop_date
+        FROM politician_ads WHERE {' AND '.join(where_parts)}
+        ORDER BY ad_start_date DESC
+    """
+    if limit:
+        sql += f" LIMIT {limit}"
+
+    rows = conn.execute(sql, params).fetchall()
+    cols = ["ad_archive_id", "politician_query", "party", "district",
+            "page_name", "page_id", "source", "ad_text", "ad_start_date", "ad_stop_date"]
+    ads = [dict(zip(cols, r)) for r in rows]
+
+    if blocklist:
+        ads = [a for a in ads if str(a.get("page_id") or "") not in blocklist]
+    return ads
+
+
+class TestClassifyBlocklist(unittest.TestCase):
+
+    def _insert(self, conn, ad_id, page_id, election_related=None, source="malta", removed=0):
+        conn.execute("""
+            INSERT INTO politician_ads (ad_archive_id, page_id, source, election_related, removed)
+            VALUES (?,?,?,?,?)
+        """, (ad_id, page_id, source, election_related, removed))
+        conn.commit()
+
+    def test_blocklisted_page_not_classified(self):
+        """Ads from blocked pages must be skipped — no API credit wasted."""
+        conn = make_classify_db()
+        self._insert(conn, "good", "safe_page")
+        self._insert(conn, "bad",  "blocked_page")
+        ads = load_unclassified_mirror(conn, "MT", "2025-01-01", None, False,
+                                       blocklist={"blocked_page"})
+        ids = {a["ad_archive_id"] for a in ads}
+        self.assertIn("good", ids)
+        self.assertNotIn("bad", ids)
+
+    def test_already_classified_yes_skipped(self):
+        """Ads with election_related=YES must not be re-classified."""
+        conn = make_classify_db()
+        self._insert(conn, "null_ad", "p1", election_related=None)
+        self._insert(conn, "yes_ad",  "p2", election_related="YES")
+        ads = load_unclassified_mirror(conn, "MT", "2025-01-01", None, False)
+        ids = {a["ad_archive_id"] for a in ads}
+        self.assertIn("null_ad", ids)
+        self.assertNotIn("yes_ad", ids)
+
+    def test_reset_no_includes_no_ads(self):
+        """With reset_no=True, ads marked NO are re-queued for classification."""
+        conn = make_classify_db()
+        self._insert(conn, "no_ad",   "p1", election_related="NO")
+        self._insert(conn, "null_ad", "p2", election_related=None)
+        ads = load_unclassified_mirror(conn, "MT", "2025-01-01", None, reset_no=True)
+        ids = {a["ad_archive_id"] for a in ads}
+        self.assertIn("no_ad", ids)
+        self.assertIn("null_ad", ids)
+
+    def test_removed_ads_skipped(self):
+        """Removed ads must not be classified — they're gone."""
+        conn = make_classify_db()
+        self._insert(conn, "active",  "p1", removed=0)
+        self._insert(conn, "removed", "p2", removed=1)
+        ads = load_unclassified_mirror(conn, "MT", "2025-01-01", None, False)
+        ids = {a["ad_archive_id"] for a in ads}
+        self.assertIn("active", ids)
+        self.assertNotIn("removed", ids)
+
+    def test_limit_respected(self):
+        """Limit parameter must cap the number of ads returned."""
+        conn = make_classify_db()
+        for i in range(10):
+            self._insert(conn, f"ad{i:02d}", f"page{i}")
+        ads = load_unclassified_mirror(conn, "MT", "2025-01-01", limit=3, reset_no=False)
+        self.assertEqual(len(ads), 3)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 11. FETCH CY — load_page_ids blocklist + YES-only filter (new)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def load_page_ids_mirror(conn, blocklist):
+    """
+    Mirror of fetch_by_page_ids_cy.load_page_ids() — kept in sync with script.
+    Only returns pages with election_related=YES, excluding the blocklist.
+    """
+    rows = conn.execute("""
+        SELECT page_id, MAX(page_name), MAX(politician_query),
+               MAX(party), MAX(district), MAX(source), COUNT(*) AS ads
+        FROM politician_ads
+        WHERE page_id IS NOT NULL AND page_id != ''
+          AND election_related = 'YES'
+        GROUP BY page_id ORDER BY ads DESC
+    """).fetchall()
+    pages = [dict(zip(
+        ['page_id','page_name','politician_query','party','district','source','ads'], r
+    )) for r in rows]
+    return [p for p in pages if p['page_id'] not in blocklist]
+
+
+class TestFetchPageIds(unittest.TestCase):
+
+    def _insert(self, conn, ad_id, page_id, election_related="YES"):
+        conn.execute("""
+            INSERT INTO politician_ads
+                (ad_archive_id, page_id, election_related, checked_at, politician_query)
+            VALUES (?,?,?,'2026-01-01','Test|PN|')
+        """, (ad_id, page_id, election_related))
+        conn.commit()
+
+    def test_yes_pages_returned(self):
+        conn = make_classify_db()
+        self._insert(conn, "ad1", "yes_page", "YES")
+        pages = load_page_ids_mirror(conn, blocklist=set())
+        self.assertEqual(pages[0]["page_id"], "yes_page")
+
+    def test_no_pages_excluded(self):
+        """Pages where all ads are election_related=NO must not be fetched."""
+        conn = make_classify_db()
+        self._insert(conn, "ad1", "no_page", "NO")
+        pages = load_page_ids_mirror(conn, blocklist=set())
+        self.assertEqual(pages, [])
+
+    def test_null_pages_excluded(self):
+        """Pages where all ads are unclassified (NULL) must not be fetched."""
+        conn = make_classify_db()
+        self._insert(conn, "ad1", "null_page", None)
+        pages = load_page_ids_mirror(conn, blocklist=set())
+        self.assertEqual(pages, [])
+
+    def test_blocklisted_yes_page_excluded(self):
+        """Even a YES page must be skipped if it's in the blocklist."""
+        conn = make_classify_db()
+        self._insert(conn, "ad1", "yes_but_blocked", "YES")
+        pages = load_page_ids_mirror(conn, blocklist={"yes_but_blocked"})
+        self.assertEqual(pages, [])
+
+    def test_mixed_pages_filtered_correctly(self):
+        conn = make_classify_db()
+        self._insert(conn, "ad1", "keep",    "YES")
+        self._insert(conn, "ad2", "skip_no", "NO")
+        self._insert(conn, "ad3", "skip_bl", "YES")
+        pages = load_page_ids_mirror(conn, blocklist={"skip_bl"})
+        ids = {p["page_id"] for p in pages}
+        self.assertIn("keep", ids)
+        self.assertNotIn("skip_no", ids)
+        self.assertNotIn("skip_bl", ids)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 12. MAKE_SUMMARY_EXCEL — _exec() auto-heal (new)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def migrate_db_mirror(conn):
+    """Mirror of make_summary_excel.migrate_db()."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(politician_ads)").fetchall()}
+    if "election_related" not in cols:
+        conn.execute("ALTER TABLE politician_ads ADD COLUMN election_related TEXT DEFAULT 'YES'")
+        conn.commit()
+
+
+def _exec_mirror(conn, sql, params=()):
+    """Mirror of make_summary_excel._exec() — auto-migrates on missing column."""
+    try:
+        return conn.execute(sql, params).fetchall()
+    except sqlite3.OperationalError as e:
+        if "election_related" in str(e):
+            migrate_db_mirror(conn)
+            return conn.execute(sql, params).fetchall()
+        raise
+
+
+class TestExecAutoHeal(unittest.TestCase):
+
+    def test_heals_missing_election_related(self):
+        """_exec() must auto-add election_related and retry instead of crashing.
+        migrate_db uses DEFAULT 'YES', so the existing row is counted."""
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE politician_ads (ad_archive_id TEXT, party TEXT)")
+        conn.execute("INSERT INTO politician_ads VALUES ('1','PL')")
+        conn.commit()
+        # Must not raise — and existing row gets DEFAULT 'YES' from migration
+        result = _exec_mirror(conn, "SELECT COUNT(*) FROM politician_ads WHERE election_related='YES'")
+        self.assertEqual(result, [(1,)])
+
+    def test_column_added_after_heal(self):
+        """After auto-heal, election_related column must exist in schema."""
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE politician_ads (ad_archive_id TEXT)")
+        conn.commit()
+        _exec_mirror(conn, "SELECT COUNT(*) FROM politician_ads WHERE election_related='YES'")
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(politician_ads)")}
+        self.assertIn("election_related", cols)
+
+    def test_other_errors_still_raise(self):
+        """_exec() must not swallow unrelated SQL errors."""
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE politician_ads (ad_archive_id TEXT)")
+        conn.commit()
+        with self.assertRaises(sqlite3.OperationalError):
+            _exec_mirror(conn, "SELECT * FROM nonexistent_table")
+
+    def test_migrate_idempotent(self):
+        """migrate_db() called twice on same connection must not error."""
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE politician_ads (ad_archive_id TEXT)")
+        conn.commit()
+        migrate_db_mirror(conn)
+        migrate_db_mirror(conn)  # second call must be a no-op
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(politician_ads)")}
+        self.assertIn("election_related", cols)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
