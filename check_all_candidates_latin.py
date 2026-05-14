@@ -458,8 +458,9 @@ def main():
         saved = upsert_ads(ads)
         print(f"    OK {len(ads)} ads -- {saved} saved to DB")
 
+        # Meta allows ~200 req/hour; name search = ~2 calls/candidate → 10s safe
         if i < len(candidates):
-            time.sleep(20)
+            time.sleep(10)
 
     # ── Save state ────────────────────────────────────────────────────────────
     if args.chunk_size > 0:

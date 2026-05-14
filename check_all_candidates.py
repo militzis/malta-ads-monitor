@@ -471,9 +471,9 @@ def main():
         print(f"    page_id: {len(page_id_ads)} ads  |  name: {len(name_ads)} ads"
               f"  →  {len(all_ads)} unique  ({saved} saved to DB)")
 
-        # Be polite to the API — Meta allows ~200 req/hour → ~18s per candidate
+        # Meta allows ~200 req/hour; name search = ~2 calls/candidate → 10s safe
         if i < len(candidates):
-            time.sleep(20)
+            time.sleep(10)
 
     # ── Save state ────────────────────────────────────────────────────────────
     if args.chunk_size > 0:

@@ -57,12 +57,12 @@ jobs:
       - name: CY — Scan candidate list chunk (Greek names)
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python check_all_candidates.py --chunk-size 70
+        run: python check_all_candidates.py --chunk-size 120
 
       - name: CY — Scan candidate list chunk (Latin names)
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python check_all_candidates_latin.py --chunk-size 70
+        run: python check_all_candidates_latin.py --chunk-size 120
 
       - name: CY — Classify new ads
         env:
