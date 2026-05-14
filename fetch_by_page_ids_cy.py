@@ -46,12 +46,15 @@ def load_blocklist() -> set:
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
 def migrate_db(conn) -> None:
-    """Add first_seen_at column if it doesn't exist yet."""
+    """Add columns used by this script if they don't exist yet."""
     cols = {r[1] for r in conn.execute("PRAGMA table_info(politician_ads)").fetchall()}
     if "first_seen_at" not in cols:
         conn.execute("ALTER TABLE politician_ads ADD COLUMN first_seen_at TEXT")
         print("[db] Added column: first_seen_at")
-        conn.commit()
+    if "election_related" not in cols:
+        conn.execute("ALTER TABLE politician_ads ADD COLUMN election_related TEXT")
+        print("[db] Added column: election_related")
+    conn.commit()
 
 
 def load_page_ids(conn, blocklist: set) -> list[dict]:

@@ -52,7 +52,7 @@ jobs:
       - name: CY — Fetch new ads (known pages)
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python fetch_by_page_ids_cy.py --since $(date +%Y-%m-%d)
+        run: python fetch_by_page_ids_cy.py
 
       - name: CY — Scan candidate list chunk (Greek names)
         env:
@@ -94,6 +94,10 @@ jobs:
             echo "Nothing changed — skipping commit."
           else
             git commit -m "auto(CY): 3h refresh $(date -u +%Y-%m-%dT%H:%M)Z"
-            git pull --rebase origin main || git rebase --abort
-            git push
+            if git pull --rebase origin main; then
+              git push
+            else
+              git rebase --abort
+              echo "Rebase conflict — skipping push this run, will retry next run."
+            fi
           fi

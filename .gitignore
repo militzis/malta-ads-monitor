@@ -24,3 +24,4 @@ venv/
 !candidates.csv
 !candidates_mt.csv
 !fetch_state.json
+!fetch_state_mt.json

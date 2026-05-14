@@ -222,6 +222,10 @@ def init_db():
         conn.execute("ALTER TABLE politician_ads ADD COLUMN removed_checked_at TEXT")
     if 'ad_text' not in cols:
         conn.execute("ALTER TABLE politician_ads ADD COLUMN ad_text TEXT")
+    if 'first_seen_at' not in cols:
+        conn.execute("ALTER TABLE politician_ads ADD COLUMN first_seen_at TEXT")
+    if 'election_related' not in cols:
+        conn.execute("ALTER TABLE politician_ads ADD COLUMN election_related TEXT")
     conn.commit()
     conn.close()
 
@@ -389,8 +393,16 @@ def main():
     chunk_complete = False
     if args.chunk_size > 0:
         chunk_pos = load_chunk_pos("latin")
+        # Guard: if chunk_pos is beyond the list (e.g. list shrank), reset
+        if chunk_pos >= len(candidates):
+            print(f"[chunk] Position {chunk_pos} beyond list size {len(candidates)} — resetting to 0")
+            chunk_pos = 0
         chunk_end = chunk_pos + args.chunk_size
         chunk = candidates[chunk_pos:chunk_end]
+        if not chunk:
+            print("[chunk] Empty chunk — skipping scan this run, position unchanged.")
+            save_chunk_pos("latin", chunk_pos)
+            return
         next_pos = chunk_end if chunk_end < len(candidates) else 0
         print(f"\n[chunk] Position {chunk_pos}–{chunk_pos + len(chunk) - 1} of {len(candidates)} "
               f"(next run starts at {next_pos if next_pos else 0})")

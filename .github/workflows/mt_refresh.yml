@@ -81,6 +81,10 @@ jobs:
             echo "Nothing changed — skipping commit."
           else
             git commit -m "auto(MT): 3h refresh $(date -u +%Y-%m-%dT%H:%M)Z"
-            git pull --rebase origin main || git rebase --abort
-            git push
+            if git pull --rebase origin main; then
+              git push
+            else
+              git rebase --abort
+              echo "Rebase conflict — skipping push this run, will retry next run."
+            fi
           fi
