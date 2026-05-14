@@ -90,8 +90,8 @@ def load_ads(conn, blocklist: set, only_unchecked: bool, since: str, limit: int,
     """
     today_str = str(date.today())
 
-    # Skip confirmed non-election ads — unclassified (NULL) still included.
-    er_filter = "AND (election_related IS NULL OR election_related != 'NO')"
+    # Only check confirmed election-related ads — no point monitoring others.
+    er_filter = "AND election_related = 'YES'"
 
     # Only ads that are still running (no past stop_date)
     active_filter = (
