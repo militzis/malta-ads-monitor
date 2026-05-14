@@ -77,7 +77,7 @@ def migrate_db(conn):
 
 
 def load_ads(conn, blocklist: set, only_unchecked: bool, since: str, limit: int,
-             active_only: bool = True, recheck_days: int = 7) -> list[dict]:
+             active_only: bool = True, recheck_days: float = 7) -> list[dict]:
     """
     Load ads to check for removal.
 
@@ -292,8 +292,8 @@ def main():
                         help='Parallel browser pages (default: 2)')
     parser.add_argument('--limit',         type=int, default=0,
                         help='Max ads to check (0 = no limit)')
-    parser.add_argument('--recheck-days',  type=int, default=7,
-                        help='Re-check active ads not checked in N days (default: 7, 0=disable)')
+    parser.add_argument('--recheck-days',  type=float, default=7,
+                        help='Re-check active ads not checked in N days; fractions OK e.g. 0.125=3h (default: 7, 0=disable)')
     parser.add_argument('--include-stopped', action='store_true',
                         help='Also check ads whose stop_date has passed (default: skip them)')
     args = parser.parse_args()
