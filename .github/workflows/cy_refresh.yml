@@ -24,10 +24,25 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
-      - name: Install dependencies
-        run: |
-          pip install requests python-dotenv openpyxl anthropic playwright
-          playwright install chromium --with-deps
+      - name: Install Python dependencies
+        run: pip install requests python-dotenv openpyxl anthropic playwright
+
+      # Cache Chromium browser binary between runs (saves ~3 min per run)
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            playwright-chromium-${{ runner.os }}-
+
+      - name: Install Chromium (only if not cached)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: playwright install chromium --with-deps
+
+      - name: Install Chromium system deps (always — needed even when binary is cached)
+        run: playwright install-deps chromium
 
       # ════════════════════════════════════════════════════════════════════════
       # CYPRUS
