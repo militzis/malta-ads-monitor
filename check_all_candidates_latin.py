@@ -448,12 +448,10 @@ def main():
             # 1. Page name contains candidate's Latin name
             if any(p in page for p in latin_parts):
                 return True
-            # 2. Ad text contains name AND party term
-            name_in_text  = any(p in text for p in latin_parts)
+            # 2. Ad text must contain ALL Latin name parts AND a party term
+            all_name_in_text  = all(p in text for p in latin_parts) if latin_parts else False
             party_in_text = any(t in text for t in party_terms)
-            if name_in_text and party_in_text:
-                return True
-            return False
+            return all_name_in_text and party_in_text
 
         before = len(ads)
         ads = [ad for ad in ads if ad_is_relevant(ad)]

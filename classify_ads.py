@@ -21,7 +21,7 @@ Usage:
     python classify_ads.py --country MT --since 2025-10-01
 """
 
-import os, sys, re, time, sqlite3, argparse
+import os, sys, re, time, sqlite3, argparse, unicodedata
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
@@ -152,37 +152,45 @@ def write_result(conn: sqlite3.Connection, ad_id: str,
 
 # ── Keyword pre-check ─────────────────────────────────────────────────────────
 
+def _kw_match(keywords: list, text: str) -> bool:
+    """Return True if any keyword appears as a whole word in text."""
+    for kw in keywords:
+        # Use word-boundary regex so 'party' doesn't match 'partyline'
+        if re.search(r'(?<!\w)' + re.escape(kw) + r'(?!\w)', text):
+            return True
+    return False
+
+
 def keyword_check(text: str, page_name: str, query: str, source: str) -> str | None:
     """
     Fast pre-screen before calling the AI.
     Returns 'YES', 'NO', or None (= needs AI).
+    Keywords are matched as whole words only — 'party' won't match 'partyline'.
     """
-    # Only search actual ad content — NOT politician_query (which contains party names
-    # like ΔΗΚΟ/ΑΜΔΗ that would falsely match election keywords on any business page
-    # returned by that politician's name search).
-    combined = (text + " " + page_name).lower()
+    text_lower = text.lower()
+    page_lower = page_name.lower()
+    # Keywords checked only in ad text, NOT page name (page name checked separately)
+    all_kw = CY_KEYWORDS + MT_KEYWORDS
 
     # Pages from name-search sources are already human-vetted as candidates
     if source in TRUSTED_SOURCES and query:
         # Still check for obvious false-positives (businesses leaked in)
-        if any(frag in page_name.lower() for frag in SKIP_FRAGMENTS):
+        if any(frag in page_lower for frag in SKIP_FRAGMENTS):
             return None   # let AI decide
-        # If we have text and it mentions a keyword, confident YES
-        if text and any(k in combined for k in CY_KEYWORDS + MT_KEYWORDS):
+        # If we have text and it mentions a keyword (whole word), confident YES
+        if text and _kw_match(all_kw, text_lower):
             return "YES"
-        # No text — send to AI (name searches return false-positive business pages;
-        # AI can judge by page name alone whether it looks like a politician)
+        # No text — send to AI
         if not text:
             return None
 
     # Clearly irrelevant by page name
-    if any(frag in page_name.lower() for frag in SKIP_FRAGMENTS):
+    if any(frag in page_lower for frag in SKIP_FRAGMENTS):
         return "NO"
 
-    # Strong keyword hit in text
-    if text:
-        if any(k in combined for k in CY_KEYWORDS + MT_KEYWORDS):
-            return "YES"
+    # Strong keyword hit in ad text only (not page name)
+    if text and _kw_match(all_kw, text_lower):
+        return "YES"
 
     return None  # Needs AI
 

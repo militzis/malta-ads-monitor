@@ -451,11 +451,14 @@ def main():
             bodies = " ".join(ad.get("ad_creative_bodies") or []).lower()
             titles = " ".join(ad.get("ad_creative_link_titles") or []).lower()
             text   = bodies + " " + titles
+            # Page name contains candidate name → keep
             if any(p in page for p in name_parts):
                 return True
-            name_in_text  = any(p in text for p in name_parts)
+            # Ad text must contain ALL name parts AND a party term
+            # (requiring all parts avoids false matches on common first names)
+            all_name_in_text  = all(p in text for p in name_parts) if name_parts else False
             party_in_text = any(t in text for t in party_terms)
-            return name_in_text and party_in_text
+            return all_name_in_text and party_in_text
 
         before   = len(name_ads)
         name_ads = [ad for ad in name_ads if ad_is_relevant(ad)]
