@@ -1,8 +1,8 @@
-name: Cyprus Ads — 3-Hour Refresh
+name: Malta Ads — 3-Hour Refresh
 
 on:
   schedule:
-    - cron: '0 0,3,6,9,12,15,18,21 * * *'   # every 3 hours, on the hour
+    - cron: '30 0,3,6,9,12,15,18,21 * * *'   # every 3 hours, 30 min after CY
   workflow_dispatch:
 
 jobs:
@@ -44,28 +44,25 @@ jobs:
         run: playwright install-deps chromium
 
       # ════════════════════════════════════════════════════════════════════════
-      # CYPRUS
+      # MALTA
       # ════════════════════════════════════════════════════════════════════════
 
-      - name: CY — Fetch new ads
+      - name: MT — Fetch new ads
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python fetch_by_page_ids_cy.py --since $(date +%Y-%m-%d)
+        run: python check_all_candidates_mt.py
 
-      - name: CY — Classify new ads
+      - name: MT — Classify new ads
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python classify_ads.py --country CY
+        run: python classify_ads.py --country MT
 
-      - name: CY — Check removed ads
-        run: python check_removed_ads_cy.py --concurrency 5 --recheck-days 14 --limit 200
-
-      - name: CY — Generate 3h report
-        run: python daily_report_cy.py --hours 3
+      - name: MT — Check removed ads
+        run: python check_removed_ads_mt.py --concurrency 5 --recheck-days 14 --limit 200
 
       # ════════════════════════════════════════════════════════════════════════
-      # SUMMARY (reads both DBs — MT DB is from last MT run)
+      # SUMMARY (reads both DBs — CY DB is from last CY run, 30 min ago)
       # ════════════════════════════════════════════════════════════════════════
 
       - name: Refresh summary Excel
@@ -77,11 +74,11 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull --rebase origin main
-          git add politician_ads.db || true
-          git add daily_report_*.xlsx summary_*.xlsx || true
+          git add politician_ads_mt.db fetch_state.json || true
+          git add summary_*.xlsx || true
           if git diff --staged --quiet; then
             echo "Nothing changed — skipping commit."
           else
-            git commit -m "auto(CY): 3h refresh $(date -u +%Y-%m-%dT%H:%M)Z"
+            git commit -m "auto(MT): 3h refresh $(date -u +%Y-%m-%dT%H:%M)Z"
             git push
           fi
