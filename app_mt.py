@@ -81,6 +81,13 @@ def load_data():
 st.title("🗳️ Malta Political Ads Monitor")
 st.caption("Malta 2026 General Election — Data from Meta Ad Library")
 
+# Last updated timestamp — based on DB file modification time
+import datetime
+if os.path.exists(DB_PATH):
+    _mtime = os.path.getmtime(DB_PATH)
+    _updated = datetime.datetime.utcfromtimestamp(_mtime).strftime("%Y-%m-%d %H:%M UTC")
+    st.caption(f"🕒 Data last updated: **{_updated}**")
+
 df_all = load_data()
 
 if df_all.empty:
