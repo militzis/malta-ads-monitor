@@ -78,8 +78,8 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add politician_ads.db || true
-          git add daily_report_*.xlsx summary_*.xlsx || true
+          git add -u                              # stage ALL modified tracked files
+          git add daily_report_*.xlsx summary_*.xlsx || true   # also new Excel files
           if git diff --staged --quiet; then
             echo "Nothing changed — skipping commit."
           else
