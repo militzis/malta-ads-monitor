@@ -27,6 +27,16 @@ DB_MT      = os.path.join(BASE, "politician_ads_mt.db")
 AD_URL     = "https://www.facebook.com/ads/library/?id={}"
 
 
+# ── db migration ─────────────────────────────────────────────────────────────
+
+def migrate_db(conn):
+    """Add election_related column if missing (needed for Malta DB)."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(politician_ads)").fetchall()}
+    if "election_related" not in cols:
+        conn.execute("ALTER TABLE politician_ads ADD COLUMN election_related TEXT DEFAULT 'YES'")
+        conn.commit()
+
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def fmt_name(q):
@@ -351,6 +361,7 @@ def main():
     # ── Malta ────────────────────────────────────────────────────────────────
     if os.path.exists(DB_MT):
         conn_mt = sqlite3.connect(DB_MT)
+        migrate_db(conn_mt)
 
         ws6 = wb.create_sheet("MT — Party Overview")
         build_party_sheet(ws6, party_overview(conn_mt, today),
