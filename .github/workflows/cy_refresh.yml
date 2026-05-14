@@ -88,7 +88,11 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add politician_ads.db politician_ads_mt.db fetch_state.json
+          git add politician_ads.db politician_ads_mt.db fetch_state.json || true
           git add daily_report_*.xlsx summary_*.xlsx || true
-          git diff --staged --quiet && echo "Nothing changed." || \
-            git commit -m "auto: 3h refresh $(date -u +%Y-%m-%dT%H:%M)Z" && git push
+          if git diff --staged --quiet; then
+            echo "Nothing changed — skipping commit."
+          else
+            git commit -m "auto: 3h refresh $(date -u +%Y-%m-%dT%H:%M)Z"
+            git push
+          fi
