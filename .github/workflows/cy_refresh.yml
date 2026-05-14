@@ -1,4 +1,4 @@
-name: Cyprus Ads — 3-Hour Refresh
+name: Cyprus & Malta Ads — 3-Hour Refresh
 
 on:
   schedule:
@@ -8,10 +8,10 @@ on:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
-      # ── 1. Checkout repo (with DB) ──────────────────────────────────────────
+      # ── 1. Checkout repo (with DBs) ─────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -29,37 +29,59 @@ jobs:
           pip install requests python-dotenv openpyxl anthropic playwright
           playwright install chromium --with-deps
 
-      # ── 3. Fetch new ads (today only) ───────────────────────────────────────
-      - name: Fetch new ads
+      # ════════════════════════════════════════════════════════════════════════
+      # CYPRUS
+      # ════════════════════════════════════════════════════════════════════════
+
+      # ── 3. Fetch new CY ads (today only) ────────────────────────────────────
+      - name: CY — Fetch new ads
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
         run: python fetch_by_page_ids_cy.py --since $(date +%Y-%m-%d)
 
-      # ── 4. Classify unclassified ads ────────────────────────────────────────
-      - name: Classify new ads
+      # ── 4. Classify unclassified CY ads ─────────────────────────────────────
+      - name: CY — Classify new ads
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
         run: python classify_ads.py --country CY
 
-      # ── 5. Check for Meta removals ──────────────────────────────────────────
-      - name: Check removed ads
+      # ── 5. Check CY removals ────────────────────────────────────────────────
+      - name: CY — Check removed ads
         run: python check_removed_ads_cy.py
 
-      # ── 6. Generate 3-hour report ───────────────────────────────────────────
-      - name: Generate 3h report
+      # ── 6. Generate CY 3-hour report ────────────────────────────────────────
+      - name: CY — Generate 3h report
         run: python daily_report_cy.py --hours 3
 
-      # ── 7. Refresh summary Excel ────────────────────────────────────────────
+      # ════════════════════════════════════════════════════════════════════════
+      # MALTA
+      # ════════════════════════════════════════════════════════════════════════
+
+      # ── 7. Fetch new MT ads (incremental) ───────────────────────────────────
+      - name: MT — Fetch new ads
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: python check_all_candidates_mt.py
+
+      # ── 8. Check MT removals ────────────────────────────────────────────────
+      - name: MT — Check removed ads
+        run: python check_removed_ads_mt.py
+
+      # ════════════════════════════════════════════════════════════════════════
+      # SHARED
+      # ════════════════════════════════════════════════════════════════════════
+
+      # ── 9. Refresh summary Excel (CY + MT) ──────────────────────────────────
       - name: Refresh summary Excel
         run: python make_summary_excel.py
 
-      # ── 8. Commit updated DB + reports back to repo ─────────────────────────
+      # ── 10. Commit updated DBs + reports back to repo ────────────────────────
       - name: Commit and push
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add politician_ads.db
+          git add politician_ads.db politician_ads_mt.db
           git add daily_report_*.xlsx summary_*.xlsx || true
           git diff --staged --quiet && echo "Nothing changed." || \
             git commit -m "auto: 3h refresh $(date -u +%Y-%m-%dT%H:%M)Z" && git push
