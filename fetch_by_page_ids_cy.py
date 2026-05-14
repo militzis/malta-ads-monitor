@@ -58,7 +58,7 @@ def migrate_db(conn) -> None:
 
 
 def load_page_ids(conn, blocklist: set) -> list[dict]:
-    """Return unique page_ids that have YES ads — skipping blocked pages."""
+    """Return unique page_ids that have YES or UNCERTAIN ads — skipping blocked pages."""
     rows = conn.execute("""
         SELECT
             page_id,
@@ -70,7 +70,7 @@ def load_page_ids(conn, blocklist: set) -> list[dict]:
             COUNT(*)              AS ads
         FROM politician_ads
         WHERE page_id IS NOT NULL AND page_id != ''
-          AND election_related = 'YES'
+          AND election_related IN ('YES', 'UNCERTAIN')
         GROUP BY page_id
         ORDER BY ads DESC
     """).fetchall()

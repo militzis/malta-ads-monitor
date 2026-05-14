@@ -15,6 +15,7 @@ import csv
 import json
 import sqlite3
 import argparse
+import re
 import requests
 import time
 from datetime import datetime, date, timedelta, timezone
@@ -356,8 +357,12 @@ def main():
             text   = bodies + " " + titles
             if any(p in page for p in name_parts):
                 return True
-            all_name_in_text = all(p in text for p in name_parts) if name_parts else False
-            party_in_text    = any(t in text for t in party_terms) if party_terms else True
+            all_name_in_text = (
+                all(re.search(r'(?<!\w)' + re.escape(p) + r'(?!\w)', text)
+                    for p in name_parts)
+                if name_parts else False
+            )
+            party_in_text = any(t in text for t in party_terms) if party_terms else True
             return all_name_in_text and party_in_text
 
         before   = len(name_ads)

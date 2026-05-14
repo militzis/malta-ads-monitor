@@ -276,100 +276,121 @@ def main():
         except ImportError:
             sys.exit("ERROR: anthropic package not installed. Run: pip install anthropic")
 
-    # MT uses a separate database
-    db_path = DB_PATH_MT if args.country == "MT" else DB_PATH
-    conn = sqlite3.connect(db_path)
-    ensure_columns(conn)
+    # Determine which DB(s) to process
+    if args.country == "MT":
+        db_targets = [("MT", DB_PATH_MT, BL_MT)]
+    elif args.country == "CY":
+        db_targets = [("CY", DB_PATH, BL_CY)]
+    else:
+        # No --country specified: process both CY and MT
+        db_targets = [("CY", DB_PATH, BL_CY), ("MT", DB_PATH_MT, BL_MT)]
 
-    blocklist = load_blocklist(BL_MT if args.country == "MT" else BL_CY)
-    ads = load_unclassified(conn, args.country, args.since, args.limit, args.reset_no,
-                            blocklist=blocklist)
-    total = len(ads)
-    country_label = args.country or "CY+MT"
+    grand_yes = grand_no = grand_unc = grand_kw = grand_total = 0
 
-    print(f"\nAd classifier — {country_label}  |  since {args.since}")
-    print(f"Ads to classify : {total:,}")
-    if args.dry_run:
-        print("DRY RUN — no changes will be written.\n")
-    print("─" * 60)
+    for country_label, db_path, bl_path in db_targets:
+        conn = sqlite3.connect(db_path)
+        ensure_columns(conn)
 
-    if total == 0:
-        print("Nothing to classify. All ads already have election_related set.")
-        conn.close()
-        return
+        blocklist = load_blocklist(bl_path)
+        # When processing both DBs, pass the specific country filter to load_unclassified
+        country_filter = country_label if len(db_targets) > 1 else args.country
+        ads = load_unclassified(conn, country_filter, args.since, args.limit,
+                                args.reset_no, blocklist=blocklist)
+        total = len(ads)
 
-    # Cost estimate (Claude Haiku ~$0.25/1M input tokens, ~80 tokens/call avg)
-    estimated_cost = total * 80 * 0.25 / 1_000_000
-    print(f"Estimated AI cost : ~${estimated_cost:.2f}  ({total} × ~80 tokens @ $0.25/1M)")
-    print("─" * 60)
+        print(f"\nAd classifier — {country_label}  |  since {args.since}  |  db: {os.path.basename(db_path)}")
+        print(f"Ads to classify : {total:,}")
+        if args.dry_run:
+            print("DRY RUN — no changes will be written.\n")
+        print("─" * 60)
 
-    yes_n = no_n = unc_n = kw_skip_n = 0
-    pending: list[tuple[str, str, str]] = []   # (ad_id, related, reason) batch
+        if total == 0:
+            print("Nothing to classify. All ads already have election_related set.")
+            conn.close()
+            continue
 
-    for i, ad in enumerate(ads, 1):
-        ad_id     = ad["ad_archive_id"]
-        page_name = ad.get("page_name") or ""
-        query     = ad.get("politician_query") or ""
-        cand      = query.split("|")[0][:30] if query else page_name[:30]
-        text      = ad.get("ad_text") or ""
-        source    = ad.get("source") or ""
+        # Cost estimate (Claude Haiku ~$0.25/1M input tokens, ~80 tokens/call avg)
+        estimated_cost = total * 80 * 0.25 / 1_000_000
+        print(f"Estimated AI cost : ~${estimated_cost:.2f}  ({total} × ~80 tokens @ $0.25/1M)")
+        print("─" * 60)
 
-        # 1. Keyword pre-check
-        kw_result = keyword_check(text, page_name, query, source)
+        yes_n = no_n = unc_n = kw_skip_n = 0
+        pending: list[tuple[str, str, str]] = []   # (ad_id, related, reason) batch
 
-        if kw_result == "YES":
-            related, reason = "YES", "Keyword pre-check: election terms found"
-            kw_skip_n += 1
-        elif kw_result == "NO":
-            related, reason = "NO", "Keyword pre-check: no election terms, flagged page"
-            kw_skip_n += 1
-        else:
-            # 2. AI classification
-            if args.dry_run:
-                related, reason = "UNCERTAIN", "(dry-run, AI not called)"
+        for i, ad in enumerate(ads, 1):
+            ad_id     = ad["ad_archive_id"]
+            page_name = ad.get("page_name") or ""
+            query     = ad.get("politician_query") or ""
+            cand      = query.split("|")[0][:30] if query else page_name[:30]
+            text      = ad.get("ad_text") or ""
+            source    = ad.get("source") or ""
+
+            # 1. Keyword pre-check
+            kw_result = keyword_check(text, page_name, query, source)
+
+            if kw_result == "YES":
+                related, reason = "YES", "Keyword pre-check: election terms found"
+                kw_skip_n += 1
+            elif kw_result == "NO":
+                related, reason = "NO", "Keyword pre-check: no election terms, flagged page"
+                kw_skip_n += 1
             else:
-                related, reason = classify_with_ai(ad, ai_client)
-                time.sleep(args.sleep)
+                # 2. AI classification
+                if args.dry_run:
+                    related, reason = "UNCERTAIN", "(dry-run, AI not called)"
+                else:
+                    related, reason = classify_with_ai(ad, ai_client)
+                    time.sleep(args.sleep)
 
-        # Tally
-        if related == "YES":        yes_n += 1
-        elif related == "NO":       no_n  += 1
-        else:                        unc_n += 1
+            # Tally
+            if related == "YES":    yes_n += 1
+            elif related == "NO":   no_n  += 1
+            else:                   unc_n += 1
 
-        ai_or_kw = "kw" if kw_result else "AI"
-        print(f"[{i:>5}/{total}] {related:<9}  ({ai_or_kw})  {cand}")
+            ai_or_kw = "kw" if kw_result else "AI"
+            print(f"[{i:>5}/{total}] {related:<9}  ({ai_or_kw})  {cand}")
 
+            if not args.dry_run:
+                pending.append((ad_id, related, reason))
+
+                # Batch commit
+                if len(pending) >= args.batch:
+                    for pid, prel, prsn in pending:
+                        write_result(conn, pid, prel, prsn)
+                    conn.commit()
+                    print(f"  ── committed {len(pending)} records ──")
+                    pending.clear()
+
+        # Final flush
+        if pending and not args.dry_run:
+            for pid, prel, prsn in pending:
+                write_result(conn, pid, prel, prsn)
+            conn.commit()
+            print(f"  ── committed {len(pending)} records ──")
+
+        conn.close()
+
+        print(f"\n{'─'*60}")
+        print(f"  Country         : {country_label}")
+        print(f"  Total processed : {total:,}")
+        print(f"  ✅ YES           : {yes_n:,}")
+        print(f"  ❌ NO            : {no_n:,}")
+        print(f"  ❓ UNCERTAIN     : {unc_n:,}")
+        print(f"  ⚡ Keyword skip  : {kw_skip_n:,}  (no AI call needed)")
         if not args.dry_run:
-            pending.append((ad_id, related, reason))
+            print(f"  Results written to: {db_path}")
 
-            # Batch commit
-            if len(pending) >= args.batch:
-                for pid, prel, prsn in pending:
-                    write_result(conn, pid, prel, prsn)
-                conn.commit()
-                print(f"  ── committed {len(pending)} records ──")
-                pending.clear()
+        grand_yes   += yes_n
+        grand_no    += no_n
+        grand_unc   += unc_n
+        grand_kw    += kw_skip_n
+        grand_total += total
 
-    # Final flush
-    if pending and not args.dry_run:
-        for pid, prel, prsn in pending:
-            write_result(conn, pid, prel, prsn)
-        conn.commit()
-        print(f"  ── committed {len(pending)} records ──")
+    if len(db_targets) > 1:
+        print(f"\n{'═'*60}")
+        print(f"  GRAND TOTAL  CY + MT")
+        print(f"  Processed : {grand_total:,}  |  YES {grand_yes:,}  NO {grand_no:,}  UNC {grand_unc:,}")
 
-    conn.close()
-
-    print(f"\n{'─'*60}")
-    print(f"  Country         : {country_label}")
-    print(f"  Total processed : {total:,}")
-    print(f"  ✅ YES           : {yes_n:,}")
-    print(f"  ❌ NO            : {no_n:,}")
-    print(f"  ❓ UNCERTAIN     : {unc_n:,}")
-    print(f"  ⚡ Keyword skip  : {kw_skip_n:,}  (no AI call needed)")
-    if not args.dry_run:
-        print(f"\nResults written to: {DB_PATH}")
-        print("Column: election_related  (YES | NO | UNCERTAIN)")
-        print("Column: ai_reason         (one-sentence explanation)")
     print(f"\nDone.")
 
 

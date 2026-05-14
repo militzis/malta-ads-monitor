@@ -14,6 +14,7 @@ import csv
 import json
 import sqlite3
 import argparse
+import re
 import requests
 import time
 from datetime import datetime, date, timedelta, timezone
@@ -250,8 +251,9 @@ def upsert_ads(ads: list[dict]) -> int:
                      impressions_min, impressions_max,
                      spend_min, spend_max, currency,
                      snapshot_url, checked_at, source,
-                     removed, removed_checked_at, ad_text)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     removed, removed_checked_at, ad_text,
+                     first_seen_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(ad_archive_id) DO UPDATE SET
                     impressions_min     = excluded.impressions_min,
                     impressions_max     = excluded.impressions_max,
@@ -261,6 +263,7 @@ def upsert_ads(ads: list[dict]) -> int:
                     page_name           = excluded.page_name,
                     checked_at          = excluded.checked_at,
                     ad_text             = excluded.ad_text
+                    -- first_seen_at intentionally NOT updated: set once on first INSERT only
             """, (
                 ad.get("id"),
                 ad.get("_query"),
@@ -283,6 +286,7 @@ def upsert_ads(ads: list[dict]) -> int:
                 0,    # removed (only for new rows)
                 None, # removed_checked_at (only for new rows)
                 ad_text,
+                now,  # first_seen_at — set once on first INSERT only
             ))
             inserted += 1
         except sqlite3.Error as e:
@@ -449,8 +453,12 @@ def main():
             # 1. Page name contains candidate's Latin name
             if any(p in page for p in latin_parts):
                 return True
-            # 2. Ad text must contain ALL Latin name parts AND a party term
-            all_name_in_text  = all(p in text for p in latin_parts) if latin_parts else False
+            # 2. Ad text must contain ALL Latin name parts (whole-word) AND a party term
+            all_name_in_text = (
+                all(re.search(r'(?<!\w)' + re.escape(p) + r'(?!\w)', text)
+                    for p in latin_parts)
+                if latin_parts else False
+            )
             party_in_text = any(t in text for t in party_terms)
             return all_name_in_text and party_in_text
 
