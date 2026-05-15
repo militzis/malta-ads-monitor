@@ -105,11 +105,19 @@ def load_ads(conn, blocklist: set, only_unchecked: bool, since: str, limit: int,
     """
     Load ads to check for removal.
 
-    active_only  — skip ads whose stop_date has already passed (default: True).
-                   Stopped ads are irrelevant for daily monitoring.
-    recheck_days — also re-check ads confirmed active (removed=0) if they
-                   haven't been checked in this many days (default: 7).
+    active_only  — applies only to the periodic re-check of already-confirmed
+                   active ads. Stopped ads that have NEVER been checked are
+                   always included regardless of stop_date.
+    recheck_days — re-check ads confirmed active (removed=0) if they haven't
+                   been checked in this many days (default: 7).
+                   Only applied to ads that are still running.
                    Set to 0 to disable re-checking.
+
+    Selection logic (only_unchecked=True):
+      • Never checked (removed_checked_at IS NULL)  → always include
+      • Confirmed active (removed=0) + stale + still running → re-check
+      • Confirmed active (removed=0) + stopped → skip (status won't change)
+      • Confirmed removed (removed=1) → skip
     """
     today_str = str(date.today())
 
@@ -117,36 +125,38 @@ def load_ads(conn, blocklist: set, only_unchecked: bool, since: str, limit: int,
     # Check confirmed and uncertain election-related ads; skip confirmed NO.
     er_filter = "AND election_related IN ('YES', 'UNCERTAIN')"
 
-    # Only ads that are still running (no past stop_date)
-    active_filter = (
-        f"AND (ad_stop_date IS NULL OR ad_stop_date = '' OR ad_stop_date >= '{today_str}')"
-        if active_only else ""
-    )
-
     if only_unchecked:
         if recheck_days > 0:
-            # Include: (a) never checked  OR  (b) active but stale (checked > N days ago)
             recheck_cutoff = (
                 datetime.now(timezone.utc) - timedelta(days=recheck_days)
             ).isoformat()
+            # Never checked → always include (regardless of stop_date)
+            # Stale active → only re-check if still running
             unchecked_clause = f"""(
                 removed_checked_at IS NULL
-                OR (removed = 0 AND removed_checked_at < '{recheck_cutoff}')
+                OR (
+                    removed = 0
+                    AND removed_checked_at < '{recheck_cutoff}'
+                    AND (ad_stop_date IS NULL OR ad_stop_date = '' OR ad_stop_date >= '{today_str}')
+                )
             )"""
         else:
-            # Only truly unchecked
+            # Only truly unchecked (no re-check)
             unchecked_clause = "removed_checked_at IS NULL"
 
         sql = f"""
             SELECT ad_archive_id, page_id, page_name, politician_query, ad_start_date
             FROM politician_ads
             WHERE {unchecked_clause}
-              {active_filter}
               {er_filter}
             ORDER BY ad_start_date DESC
         """
     else:
-        # --all: re-check everything (respects active_only and er_filter)
+        # --all: re-check everything; active_only still applies here
+        active_filter = (
+            f"AND (ad_stop_date IS NULL OR ad_stop_date = '' OR ad_stop_date >= '{today_str}')"
+            if active_only else ""
+        )
         sql = f"""
             SELECT ad_archive_id, page_id, page_name, politician_query, ad_start_date
             FROM politician_ads
