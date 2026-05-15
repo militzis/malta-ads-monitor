@@ -49,6 +49,30 @@ def is_removed_text(body: str) -> bool:
     return any(m in b for m in strong_markers)
 
 
+def is_ambiguous_text(body: str) -> bool:
+    """
+    Detect login walls, error pages, and other states that mean we can't
+    confirm whether the ad is active or removed.  Return True → treat as error.
+    """
+    b = body.lower()
+    ambiguous_markers = [
+        "you must log in",
+        "you must be logged",
+        "log into facebook",
+        "log in to facebook",
+        "log in or sign up",
+        "sign in to continue",
+        "create new account",
+        "something went wrong",
+        "this content isn't available",
+        "this content is not available",
+        "page not found",
+        "the link you followed may have expired",
+        "content not available",
+    ]
+    return any(m in b for m in ambiguous_markers)
+
+
 # ── DB helpers ─────────────────────────────────────────────────────────────────
 
 def load_blocklist() -> set:
@@ -177,7 +201,17 @@ def save_results(results: list[tuple]):
 
 async def check_ad(context, ad_id: str, semaphore: asyncio.Semaphore) -> str:
     """
-    Returns: 'removed' | 'active' | 'error'
+    Returns: 'removed' | 'active' | 'error:<reason>'
+
+    Decision logic (in order):
+      1. Definitive removal banner found → 'removed'
+      2. Ad content selector found (ad rendered on page) → 'active'
+      3. Login wall / error page detected → 'error:ambiguous'
+      4. Page body too short (essentially blank) → 'error:blank'
+      5. Neither ad content nor removal found → 'error:no_content'
+
+    Only 'removed' and 'active' are saved to the DB.
+    Errors are skipped and retried on the next run.
     """
     url = AD_LIB_URL.format(ad_id=ad_id)
     async with semaphore:
@@ -185,6 +219,8 @@ async def check_ad(context, ad_id: str, semaphore: asyncio.Semaphore) -> str:
         try:
             await page.goto(url, wait_until='domcontentloaded', timeout=20000)
 
+            # Track whether the ad content selector was positively found
+            ad_selector_found = False
             try:
                 await page.wait_for_selector(
                     '[data-testid="ad_archive_ad_item"], '
@@ -192,15 +228,32 @@ async def check_ad(context, ad_id: str, semaphore: asyncio.Semaphore) -> str:
                     'div[role="article"]',
                     timeout=6000
                 )
+                ad_selector_found = True
             except Exception:
-                pass
+                pass  # selector not found — don't assume active
 
             await page.wait_for_timeout(2500)
 
             body = await page.inner_text('body')
+
+            # 1. Definitive removal — always wins
             if is_removed_text(body):
                 return 'removed'
-            return 'active'
+
+            # 2. Ad content positively confirmed on page
+            if ad_selector_found:
+                return 'active'
+
+            # 3. Login wall or known error page
+            if is_ambiguous_text(body):
+                return 'error:ambiguous'
+
+            # 4. Page body is essentially blank (JS didn't render anything useful)
+            if len(body.strip()) < 200:
+                return 'error:blank'
+
+            # 5. Page loaded but no ad and no removal banner — ambiguous
+            return 'error:no_content'
 
         except Exception as e:
             err = str(e)[:60]
