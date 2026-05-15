@@ -64,12 +64,6 @@ jobs:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
         run: python check_all_candidates_latin.py --chunk-size 120
 
-      - name: CY — Classify new ads
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python classify_ads.py --country CY
-
       - name: CY — Check removed ads
         run: python check_removed_ads_cy.py --concurrency 5 --recheck-days 0.125 --limit 500
 

@@ -1,0 +1,61 @@
+name: Classify Ads — Daily (CY + MT)
+
+on:
+  schedule:
+    - cron: '0 6,18 * * *'   # twice a day: 06:00 and 18:00 UTC
+  workflow_dispatch:
+
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      # ── 1. Checkout ─────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 2. Python setup ──────────────────────────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: pip install requests python-dotenv openpyxl anthropic
+
+      # ── 3. Classify ──────────────────────────────────────────────────────────
+      - name: CY — Classify new ads
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: python classify_ads.py --country CY
+
+      - name: MT — Classify new ads
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: python classify_ads.py --country MT
+
+      # ── 4. Commit ────────────────────────────────────────────────────────────
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -u
+          if git diff --staged --quiet; then
+            echo "Nothing classified — skipping commit."
+          else
+            git commit -m "auto: classify ads $(date -u +%Y-%m-%dT%H:%M)Z"
+            if git pull --rebase origin main; then
+              git push
+            else
+              git rebase --abort
+              echo "Rebase conflict — skipping push this run, will retry next run."
+            fi
+          fi

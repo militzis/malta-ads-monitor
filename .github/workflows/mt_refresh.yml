@@ -54,12 +54,6 @@ jobs:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
         run: python check_all_candidates_mt.py
 
-      - name: MT — Classify new ads
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python classify_ads.py --country MT
-
       - name: MT — Check removed ads
         run: python check_removed_ads_mt.py --concurrency 5 --recheck-days 0.125 --limit 500
 
