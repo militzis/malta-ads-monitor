@@ -3,5 +3,7 @@
   "google": "2026-05-03",
   "google_discover": "2026-05-13",
   "latin": "2026-05-11",
-  "mt": "2026-05-13"
+  "mt": "2026-05-13",
+  "greek_chunk_pos": 120,
+  "latin_chunk_pos": 120
 }
