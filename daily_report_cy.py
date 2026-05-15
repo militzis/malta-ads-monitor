@@ -203,8 +203,11 @@ def get_readvertisers(conn, blocklist: set) -> list[dict]:
             FROM politician_ads pa
             JOIN first_removal fr ON pa.page_id = fr.page_id
             WHERE pa.removed = 0
-              -- Use first_seen_at (reliable) if available, fall back to ad_start_date
-              AND COALESCE(pa.first_seen_at, pa.ad_start_date) > fr.first_removed_at
+              -- Compare ad_start_date (when Meta says the ad started) against the
+              -- date portion of first_removed_at. first_seen_at is when our pipeline
+              -- discovered the ad — not reliable for this comparison since we might
+              -- discover a pre-existing ad on the same day we detect a removal.
+              AND pa.ad_start_date > DATE(fr.first_removed_at)
               {er_filter_new}
         )
         SELECT * FROM new_ads
