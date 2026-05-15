@@ -75,12 +75,13 @@ def main():
     removed_filter = '' if args.removed else "AND removed = 0"
 
     # Get distinct page_ids that have at least one ad with NULL spend
+    # Only dashboard-visible ads: election_related = 'YES'
     page_rows = conn.execute(f"""
         SELECT DISTINCT page_id, page_name
         FROM politician_ads
         WHERE spend_min IS NULL
           AND page_id IS NOT NULL
-          AND election_related != 'NO'
+          AND election_related = 'YES'
           {removed_filter}
         ORDER BY page_id
     """).fetchall()
@@ -105,7 +106,7 @@ def main():
                 SELECT ad_archive_id, spend_min, impressions_min
                 FROM politician_ads
                 WHERE page_id = ? AND spend_min IS NULL
-                  AND election_related != 'NO'
+                  AND election_related = 'YES'
                   {removed_filter}
             """, (page_id,)).fetchall()
         }
