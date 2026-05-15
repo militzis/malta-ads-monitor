@@ -113,8 +113,8 @@ def load_unclassified(conn: sqlite3.Connection, country: str | None,
     else:
         where_parts.append("election_related IS NULL")
 
-    # Exclude removed ads (they're gone, no point classifying)
-    where_parts.append("removed = 0")
+    # Include removed ads — we still need to know if they were election-related
+    # so they show up correctly in the "Removed by Meta" dashboard metric
 
     where_sql = " AND ".join(where_parts)
     sql = f"""
