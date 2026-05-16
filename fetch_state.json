@@ -1,9 +1,9 @@
 {
-  "greek": "2026-05-09",
+  "greek": "2026-05-16",
   "google": "2026-05-03",
   "google_discover": "2026-05-13",
-  "latin": "2026-05-11",
+  "latin": "2026-05-16",
   "mt": "2026-05-13",
-  "greek_chunk_pos": 720,
-  "latin_chunk_pos": 720
+  "greek_chunk_pos": 0,
+  "latin_chunk_pos": 0
 }
