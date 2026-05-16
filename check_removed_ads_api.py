@@ -111,21 +111,47 @@ def load_unchecked(conn, only_unchecked: bool, recheck_days: float,
 
 def save_results(conn, results: list[tuple]) -> None:
     """
-    Bulk-save [(ad_archive_id, removed_int, now_str), ...].
+    Bulk-save [(ad_archive_id, removed_int, now_str, spend_min, spend_max,
+                imp_min, imp_max, currency), ...].
     Policy: removed=1 is never downgraded to 0.
+    Spend/impressions are updated whenever the API returns them (fills NULLs).
     """
-    for ad_id, removed, ts in results:
+    for row in results:
+        ad_id, removed, ts = row[0], row[1], row[2]
+        smin, smax = row[3], row[4]
+        imin, imax = row[5], row[6]
+        cur        = row[7] if len(row) > 7 else None
+
         if removed == 1:
-            conn.execute(
-                "UPDATE politician_ads SET removed=1, removed_checked_at=? WHERE ad_archive_id=?",
-                (ts, ad_id)
-            )
+            conn.execute("""
+                UPDATE politician_ads
+                SET removed=1, removed_checked_at=?,
+                    spend_min      = CASE WHEN ? IS NOT NULL THEN ? ELSE spend_min END,
+                    spend_max      = CASE WHEN ? IS NOT NULL THEN ? ELSE spend_max END,
+                    impressions_min= CASE WHEN ? IS NOT NULL THEN ? ELSE impressions_min END,
+                    impressions_max= CASE WHEN ? IS NOT NULL THEN ? ELSE impressions_max END,
+                    currency       = CASE WHEN ? IS NOT NULL THEN ? ELSE currency END
+                WHERE ad_archive_id=?
+            """, (ts,
+                  smin, smin, smax, smax,
+                  imin, imin, imax, imax,
+                  cur,  cur,
+                  ad_id))
         else:
-            conn.execute(
-                "UPDATE politician_ads SET removed=0, removed_checked_at=? "
-                "WHERE ad_archive_id=? AND (removed IS NULL OR removed = 0)",
-                (ts, ad_id)
-            )
+            conn.execute("""
+                UPDATE politician_ads
+                SET removed=0, removed_checked_at=?,
+                    spend_min      = CASE WHEN ? IS NOT NULL THEN ? ELSE spend_min END,
+                    spend_max      = CASE WHEN ? IS NOT NULL THEN ? ELSE spend_max END,
+                    impressions_min= CASE WHEN ? IS NOT NULL THEN ? ELSE impressions_min END,
+                    impressions_max= CASE WHEN ? IS NOT NULL THEN ? ELSE impressions_max END,
+                    currency       = CASE WHEN ? IS NOT NULL THEN ? ELSE currency END
+                WHERE ad_archive_id=? AND (removed IS NULL OR removed = 0)
+            """, (ts,
+                  smin, smin, smax, smax,
+                  imin, imin, imax, imax,
+                  cur,  cur,
+                  ad_id))
     conn.commit()
 
 
@@ -276,7 +302,7 @@ def fetch_page_ads(page_id: str, since_date: str, country: str, token: str) -> d
         "ad_reached_countries": json.dumps([country]),
         "search_page_ids":      json.dumps([page_id]),
         "ad_delivery_date_min": since_date or "2025-01-01",
-        "fields":               "id,ad_creative_bodies",
+        "fields":               "id,ad_creative_bodies,spend,impressions,currency",
         "limit":                100,
         "access_token":         token,
     }
@@ -305,7 +331,16 @@ def fetch_page_ads(page_id: str, since_date: str, country: str, token: str) -> d
                 bodies = ad.get("ad_creative_bodies") or []
                 if bodies:
                     is_removed = any(REMOVAL_TEXT in (b or "").lower() for b in bodies)
-                    results[ad["id"]] = is_removed
+                    spend  = ad.get("spend") or {}
+                    imp    = ad.get("impressions") or {}
+                    results[ad["id"]] = {
+                        "is_removed":     is_removed,
+                        "spend_min":      spend.get("lower_bound"),
+                        "spend_max":      spend.get("upper_bound"),
+                        "impressions_min": imp.get("lower_bound"),
+                        "impressions_max": imp.get("upper_bound"),
+                        "currency":       ad.get("currency"),
+                    }
                 # ads without bodies: not conclusive, skip (leave unchecked)
             url    = data.get("paging", {}).get("next")
             params = {}
@@ -388,10 +423,15 @@ def process_db(db_path: str, country: str, args, token: str,
             if ad_id not in api_results:
                 total_skipped += 1
                 continue
-            is_removed = api_results[ad_id]
+            info       = api_results[ad_id]
+            is_removed = info["is_removed"]
+            spend_row  = (ad_id, 1 if is_removed else 0, now,
+                          info["spend_min"], info["spend_max"],
+                          info["impressions_min"], info["impressions_max"],
+                          info["currency"])
             if is_removed:
                 total_removed += 1
-                batch.append((ad_id, 1, now))
+                batch.append(spend_row)
                 if ad_id not in already_removed_in_db:
                     newly_removed.append(ad_id)
                     print(f"  ⚠ NEW REMOVAL  {ad_id}  (page {page_id})")
@@ -399,7 +439,7 @@ def process_db(db_path: str, country: str, args, token: str,
                     print(f"  ⚠ removed      {ad_id}  (already known)")
             else:
                 total_active += 1
-                batch.append((ad_id, 0, now))
+                batch.append(spend_row)
 
         if len(batch) >= BATCH_SIZE:
             save_results(conn, batch)
