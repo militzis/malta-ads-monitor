@@ -37,6 +37,14 @@ BASE      = os.path.dirname(os.path.abspath(__file__))
 CY_DB     = os.path.join(BASE, "politician_ads.db")
 MT_DB     = os.path.join(BASE, "politician_ads_mt.db")
 META_URL  = "https://graph.facebook.com/v25.0/ads_archive"
+LOG_FILE  = os.path.join(BASE, "removals_log.xlsx")
+AD_URL    = "https://www.facebook.com/ads/library/?id={}"
+
+LOG_HEADERS = [
+    "Date Detected (UTC)", "Country", "Candidate", "Party", "District",
+    "Page Name", "Ad ID", "Ad Start Date", "Ad End Date",
+    "Spend Min (€)", "Spend Max (€)", "Impressions Max", "Ad Library URL",
+]
 
 REMOVAL_TEXT = "this content was removed because it didn't follow our advertising standards"
 
@@ -121,6 +129,133 @@ def save_results(conn, results: list[tuple]) -> None:
     conn.commit()
 
 
+# ── Excel log ────────────────────────────────────────────────────────────────
+
+def _load_log_ids() -> set:
+    """Return ad_archive_ids already in removals_log.xlsx (avoid duplicate rows)."""
+    if not os.path.exists(LOG_FILE):
+        return set()
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(LOG_FILE, read_only=True)
+        ws = wb.active
+        ids = set()
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            if i == 0:
+                continue   # skip header
+            ad_id = row[6]  # column G = Ad ID
+            if ad_id:
+                ids.add(str(ad_id))
+        wb.close()
+        return ids
+    except Exception as e:
+        print(f"  [log] Could not read existing log: {e}")
+        return set()
+
+
+def _append_to_log(rows: list[dict]) -> None:
+    """Append new-removal rows to removals_log.xlsx, creating it if needed."""
+    if not rows:
+        return
+    try:
+        from openpyxl import load_workbook, Workbook
+        from openpyxl.styles import PatternFill, Font, Alignment
+
+        RED_FILL  = PatternFill("solid", fgColor="C00000")
+        WHITE_HDR = Font(bold=True, color="FFFFFF")
+
+        if os.path.exists(LOG_FILE):
+            wb = load_workbook(LOG_FILE)
+            ws = wb.active
+        else:
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Removals Log"
+            ws.append(LOG_HEADERS)
+            for cell in ws[1]:
+                cell.fill      = RED_FILL
+                cell.font      = WHITE_HDR
+                cell.alignment = Alignment(horizontal="center", wrap_text=True)
+            ws.row_dimensions[1].height = 22
+            ws.freeze_panes = "A2"
+            # Column widths
+            widths = [20, 8, 28, 16, 14, 32, 20, 12, 12, 12, 12, 14, 55]
+            from openpyxl.utils import get_column_letter
+            for i, w in enumerate(widths, 1):
+                ws.column_dimensions[get_column_letter(i)].width = w
+
+        for r in rows:
+            ws.append([
+                r["detected_at"],
+                r["country"],
+                r["candidate"],
+                r["party"],
+                r["district"],
+                r["page_name"],
+                r["ad_id"],
+                r["start_date"],
+                r["stop_date"],
+                r["spend_min"],
+                r["spend_max"],
+                r["impressions_max"],
+                AD_URL.format(r["ad_id"]),
+            ])
+            # Style the URL cell
+            url_cell = ws.cell(ws.max_row, 13)
+            url_cell.font = Font(color="0563C1", underline="single")
+
+        wb.save(LOG_FILE)
+        print(f"  [log] Appended {len(rows)} new removal(s) → removals_log.xlsx")
+
+    except ImportError:
+        print("  [log] openpyxl not installed — skipping Excel log")
+    except Exception as e:
+        print(f"  [log] Error writing log: {e}")
+
+
+def log_new_removals(conn, newly_removed_ids: list[str], country: str,
+                     detected_at: str, existing_log_ids: set) -> None:
+    """Look up details for newly removed ads and append to the log."""
+    to_log = [aid for aid in newly_removed_ids if aid not in existing_log_ids]
+    if not to_log:
+        return
+
+    placeholders = ",".join("?" * len(to_log))
+    rows_db = conn.execute(f"""
+        SELECT ad_archive_id, politician_query, party, page_name,
+               ad_start_date, ad_stop_date,
+               spend_min, spend_max, impressions_max
+        FROM politician_ads
+        WHERE ad_archive_id IN ({placeholders})
+    """, to_log).fetchall()
+
+    log_rows = []
+    for r in rows_db:
+        query  = r[1] or ""
+        parts  = query.split("|")
+        cand   = parts[0].strip()
+        party  = r[2] or (parts[1].strip() if len(parts) > 1 else "")
+        dist   = parts[2].strip() if len(parts) > 2 else ""
+        log_rows.append({
+            "detected_at":   detected_at[:19].replace("T", " "),
+            "country":       country,
+            "candidate":     cand,
+            "party":         party,
+            "district":      dist,
+            "page_name":     r[3] or "",
+            "ad_id":         r[0],
+            "start_date":    r[4] or "",
+            "stop_date":     r[5] or "",
+            "spend_min":     r[6],
+            "spend_max":     r[7],
+            "impressions_max": r[8],
+        })
+
+    _append_to_log(log_rows)
+    # Update the in-memory set so subsequent DBs don't re-log the same IDs
+    existing_log_ids.update(r["ad_id"] for r in log_rows)
+
+
 # ── API ───────────────────────────────────────────────────────────────────────
 
 RATE_LIMIT_CODE = 613      # Meta API error code for rate limiting
@@ -183,7 +318,8 @@ def fetch_page_ads(page_id: str, since_date: str, country: str, token: str) -> d
 
 # ── Core ─────────────────────────────────────────────────────────────────────
 
-def process_db(db_path: str, country: str, args, token: str) -> dict:
+def process_db(db_path: str, country: str, args, token: str,
+               existing_log_ids: set) -> dict:
     """Check one DB (CY or MT). Returns summary counts."""
     label = country
     print(f"\n{'═'*60}")
@@ -221,8 +357,23 @@ def process_db(db_path: str, country: str, args, token: str) -> dict:
     total_active  = 0
     total_skipped = 0
     batch: list[tuple] = []
+    newly_removed: list[str] = []   # ad_ids newly detected as removed this run
     BATCH_SIZE = 100
     page_count = 0
+
+    # Pre-load which ads in our queue are ALREADY removed in the DB
+    # so we don't log them as "new" when they were previously known
+    all_ids = [a['ad_archive_id'] for a in ads]
+    if all_ids:
+        ph = ",".join("?" * len(all_ids))
+        already_removed_in_db = set(
+            r[0] for r in conn.execute(
+                f"SELECT ad_archive_id FROM politician_ads "
+                f"WHERE ad_archive_id IN ({ph}) AND removed=1", all_ids
+            ).fetchall()
+        )
+    else:
+        already_removed_in_db = set()
 
     for page_id, page_ads in by_page.items():
         # Use the oldest ad_start_date in this group as the since_date
@@ -235,14 +386,17 @@ def process_db(db_path: str, country: str, args, token: str) -> dict:
         for a in page_ads:
             ad_id = a['ad_archive_id']
             if ad_id not in api_results:
-                # API didn't return this ad — could be pagination gap or very old
                 total_skipped += 1
                 continue
             is_removed = api_results[ad_id]
             if is_removed:
                 total_removed += 1
                 batch.append((ad_id, 1, now))
-                print(f"  ⚠ REMOVED  {ad_id}  (page {page_id})")
+                if ad_id not in already_removed_in_db:
+                    newly_removed.append(ad_id)
+                    print(f"  ⚠ NEW REMOVAL  {ad_id}  (page {page_id})")
+                else:
+                    print(f"  ⚠ removed      {ad_id}  (already known)")
             else:
                 total_active += 1
                 batch.append((ad_id, 0, now))
@@ -256,6 +410,10 @@ def process_db(db_path: str, country: str, args, token: str) -> dict:
 
     if batch:
         save_results(conn, batch)
+
+    # Log newly detected removals to Excel
+    if newly_removed:
+        log_new_removals(conn, newly_removed, country, now, existing_log_ids)
 
     conn.close()
 
@@ -297,15 +455,18 @@ def main():
     run_cy = not args.mt   # run CY unless --mt-only
     run_mt = not args.cy   # run MT unless --cy-only
 
+    # Load existing log IDs once — shared across CY and MT to avoid duplicates
+    existing_log_ids = _load_log_ids()
+
     totals = {'total': 0, 'removed': 0, 'active': 0, 'skipped': 0}
 
     if run_cy:
-        r = process_db(CY_DB, "CY", args, token)
+        r = process_db(CY_DB, "CY", args, token, existing_log_ids)
         for k in totals:
             totals[k] += r[k]
 
     if run_mt:
-        r = process_db(MT_DB, "MT", args, token)
+        r = process_db(MT_DB, "MT", args, token, existing_log_ids)
         for k in totals:
             totals[k] += r[k]
 
