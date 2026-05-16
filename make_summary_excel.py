@@ -59,26 +59,6 @@ def col_letter(n):
 
 # ── styling ───────────────────────────────────────────────────────────────────
 
-def apply_styles(wb):
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-
-    HDR_FILLS = {
-        "blue":   PatternFill("solid", fgColor="1F4E79"),
-        "green":  PatternFill("solid", fgColor="375623"),
-        "red":    PatternFill("solid", fgColor="C00000"),
-        "purple": PatternFill("solid", fgColor="4B0082"),
-        "teal":   PatternFill("solid", fgColor="005F5F"),
-    }
-    HDR_FONT  = Font(bold=True, color="FFFFFF", size=10)
-    ALT_FILLS = [None, PatternFill("solid", fgColor="EEF4FF")]
-    ALT_MT    = [None, PatternFill("solid", fgColor="FFF8EE")]
-    LINK_FONT = Font(color="0563C1", underline="single", size=9)
-    TOTAL_FONT= Font(bold=True, size=10)
-    thin      = Border(bottom=__import__('openpyxl').styles.Side(style="thin", color="CCCCCC"))
-
-    return HDR_FILLS, HDR_FONT, ALT_FILLS, ALT_MT, LINK_FONT, TOTAL_FONT
-
-
 def write_header(ws, headers, fill, font):
     from openpyxl.styles import Alignment
     ws.append(headers)

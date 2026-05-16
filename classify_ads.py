@@ -103,7 +103,7 @@ def load_unclassified(conn: sqlite3.Connection, country: str | None,
     params: list = [since]
 
     if country == "CY":
-        where_parts.append("source IN ('greek','latin','page_id_cy')")
+        where_parts.append("source IN ('greek','latin','page_id_cy','cy')")
     elif country == "MT":
         where_parts.append("source IN ('malta','page_id_mt','mt')")
     # else: all countries

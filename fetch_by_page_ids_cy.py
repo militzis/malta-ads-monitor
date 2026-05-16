@@ -212,7 +212,7 @@ def main():
     print(f"Estimated time : ~{len(pages) * args.sleep / 60:.0f} min")
     print("─" * 60)
 
-    total_new = total_updated = total_errors = 0
+    total_new = 0
 
     for i, page in enumerate(pages, 1):
         pid    = page["page_id"]
