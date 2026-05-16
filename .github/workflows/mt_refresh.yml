@@ -27,23 +27,7 @@ jobs:
           cache: 'pip'
 
       - name: Install Python dependencies
-        run: pip install requests python-dotenv openpyxl anthropic playwright
-
-      - name: Cache Playwright browsers
-        uses: actions/cache@v5
-        id: playwright-cache
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('**/requirements*.txt') }}
-          restore-keys: |
-            playwright-chromium-${{ runner.os }}-
-
-      - name: Install Chromium (only if not cached)
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: playwright install chromium --with-deps
-
-      - name: Install Chromium system deps (always)
-        run: playwright install-deps chromium
+        run: pip install requests python-dotenv openpyxl anthropic
 
       # ════════════════════════════════════════════════════════════════════════
       # MALTA
@@ -53,9 +37,6 @@ jobs:
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
         run: python check_all_candidates_mt.py
-
-      - name: MT — Check removed ads
-        run: python check_removed_ads_mt.py --concurrency 5 --recheck-days 0.125 --limit 500
 
       # ════════════════════════════════════════════════════════════════════════
       # SUMMARY (reads both DBs — CY DB is from last CY run, 30 min ago)
