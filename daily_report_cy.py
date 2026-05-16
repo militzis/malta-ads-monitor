@@ -209,7 +209,10 @@ def get_readvertisers(conn, blocklist: set) -> list[dict]:
             JOIN first_removal fr ON pa.page_id = fr.page_id
             WHERE pa.removed = 0
               -- Use first_seen_at (reliable) if available, fall back to ad_start_date
-              AND COALESCE(pa.first_seen_at, pa.ad_start_date) > fr.first_removed_at
+              -- Compare date portions only to avoid mixing full timestamps with date-only strings.
+              -- first_seen_at is a UTC timestamp; ad_start_date is YYYY-MM-DD; SUBSTR normalises both.
+              AND SUBSTR(COALESCE(pa.first_seen_at, pa.ad_start_date), 1, 10)
+                  > SUBSTR(fr.first_removed_at, 1, 10)
               {er_filter_new}
         )
         SELECT * FROM new_ads
@@ -359,8 +362,10 @@ def write_excel(removed_rows: list[dict], readv_rows: list[dict],
                 ws1.cell(row=r, column=6).value
                 for r in range(2, ws1.max_row + 1)
             }
-            # Remove placeholder "no data" row if it's the only content row
-            if ws1.max_row == 2 and ws1.cell(row=2, column=6).value is None:
+            # Remove placeholder "no data" row if it's the only content row.
+            # Placeholder text is in column 1; column 6 (Ad ID) is always set
+            # for real data rows — check col 1 non-empty AND col 6 empty.
+            if ws1.max_row == 2 and ws1.cell(row=2, column=1).value and ws1.cell(row=2, column=6).value is None:
                 ws1.delete_rows(2)
         else:
             # Sheet missing in old-format file — create it
@@ -383,7 +388,7 @@ def write_excel(removed_rows: list[dict], readv_rows: list[dict],
                 ws3.cell(row=r, column=6).value
                 for r in range(2, ws3.max_row + 1)
             }
-            if ws3.max_row == 2 and ws3.cell(row=2, column=6).value is None:
+            if ws3.max_row == 2 and ws3.cell(row=2, column=1).value and ws3.cell(row=2, column=6).value is None:
                 ws3.delete_rows(2)
         else:
             ws3 = wb.create_sheet(SHEET_NEW)

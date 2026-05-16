@@ -121,14 +121,17 @@ def all_removed_ads(conn):
 
 
 def db_summary(conn):
+    # Use CASE WHEN instead of FILTER — FILTER was added in SQLite 3.30 (2019)
+    # and is not available on all platforms (e.g. older Windows SQLite DLLs).
     return conn.execute("""
         SELECT
-            COUNT(*) FILTER (WHERE removed=1 AND election_related='YES') AS removed_ads,
-            COUNT(*) FILTER (WHERE election_related='YES')               AS total_ads,
-            COUNT(DISTINCT politician_query) FILTER (WHERE removed=1 AND election_related='YES') AS removed_candidates,
-            SUM(spend_min) FILTER (WHERE removed=1 AND election_related='YES') AS rem_smin,
-            SUM(spend_max) FILTER (WHERE removed=1 AND election_related='YES') AS rem_smax,
-            SUM(spend_max) FILTER (WHERE election_related='YES')               AS tot_smax
+            SUM(CASE WHEN removed=1 AND election_related='YES' THEN 1 ELSE 0 END)          AS removed_ads,
+            SUM(CASE WHEN election_related='YES'               THEN 1 ELSE 0 END)          AS total_ads,
+            COUNT(DISTINCT CASE WHEN removed=1 AND election_related='YES'
+                                THEN politician_query END)                                  AS removed_candidates,
+            SUM(CASE WHEN removed=1 AND election_related='YES' THEN spend_min  ELSE NULL END) AS rem_smin,
+            SUM(CASE WHEN removed=1 AND election_related='YES' THEN spend_max  ELSE NULL END) AS rem_smax,
+            SUM(CASE WHEN election_related='YES'               THEN spend_max  ELSE NULL END) AS tot_smax
         FROM politician_ads
     """).fetchone()
 
@@ -157,7 +160,7 @@ def build_summary_sheet(ws, cy_sum, mt_sum):
             ("Spend on removed (min €)", s[3], f"€{s[3]:,.0f}" if s[3] else "€0"),
             ("Spend on removed (max €)", s[4], f"€{s[4]:,.0f}" if s[4] else "€0"),
             ("% of total spend removed", None,
-             f"{s[4]/s[5]*100:.1f}%" if (s[5] and s[4]) else "—"),
+             f"{s[4]/s[5]*100:.1f}%" if (s[5] and s[4] is not None) else "—"),
         ]
         for label2, _, display in rows:
             ws.append(["", label2, display])

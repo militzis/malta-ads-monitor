@@ -199,7 +199,10 @@ def fetch_page(page_id: str, since_date: str, token: str) -> list[dict]:
         while url:
             resp = requests.get(url, params=params, timeout=30)
             if resp.status_code != 200:
-                err = resp.json().get("error", {}).get("message", "?")
+                try:
+                    err = resp.json().get("error", {}).get("message", resp.text[:200])
+                except Exception:
+                    err = resp.text[:200]
                 print(f"    [!] API {resp.status_code}: {err}")
                 break
             data = resp.json()

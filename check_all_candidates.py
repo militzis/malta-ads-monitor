@@ -105,9 +105,12 @@ def save_chunk_pos(script_key: str, pos: int):
         except Exception:
             pass
     state[f"{script_key}_chunk_pos"] = pos
-    with open(FETCH_STATE_FILE, 'w', encoding='utf-8') as f:
-        json.dump(state, f, indent=2)
-    print(f"[state] Chunk position for '{script_key}': {pos}")
+    try:
+        with open(FETCH_STATE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(state, f, indent=2)
+        print(f"[state] Chunk position for '{script_key}': {pos}")
+    except Exception as e:
+        print(f"[state] WARNING: could not save chunk position for '{script_key}': {e}")
 
 # Search terms used to match party mentions in ad text
 # Multiple terms per party — any match counts as relevant
@@ -260,7 +263,11 @@ def _fetch_raw(params: dict) -> list[dict]:
         while url:
             resp = requests.get(url, params=params, timeout=30)
             if resp.status_code != 200:
-                print(f"    [!] API error {resp.status_code}: {resp.json().get('error', {}).get('message')}")
+                try:
+                    err_msg = resp.json().get('error', {}).get('message', resp.text[:200])
+                except Exception:
+                    err_msg = resp.text[:200]
+                print(f"    [!] API error {resp.status_code}: {err_msg}")
                 break
             data = resp.json()
             all_ads.extend(data.get("data", []))

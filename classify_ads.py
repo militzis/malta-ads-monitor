@@ -206,7 +206,7 @@ def classify_with_ai(ad: dict, client) -> tuple[str, str]:
 
     query  = ad.get("politician_query") or ""
     name   = query.split("|")[0].strip() if "|" in query else query.strip()
-    party  = ad.get("party") or query.split("|")[1].strip() if "|" in query else ""
+    party  = ad.get("party") or (query.split("|")[1].strip() if "|" in query else "")
     source = ad.get("source") or ""
     country_hint = "Cyprus" if source in ("greek", "latin", "page_id_cy") else "Malta"
 
