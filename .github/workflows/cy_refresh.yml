@@ -27,7 +27,7 @@ jobs:
           cache: 'pip'
 
       - name: Install Python dependencies
-        run: pip install requests python-dotenv openpyxl anthropic
+        run: pip install requests python-dotenv openpyxl
 
       # ════════════════════════════════════════════════════════════════════════
       # CYPRUS

@@ -2,7 +2,7 @@ name: Classify Ads — Daily (CY + MT)
 
 on:
   schedule:
-    - cron: '0 6,18 * * *'   # twice a day: 06:00 and 18:00 UTC
+    - cron: '0 5,17 * * *'   # twice a day: 05:00 and 17:00 UTC (avoids cy_refresh at :00)
   workflow_dispatch:
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
           cache: 'pip'
 
       - name: Install Python dependencies
-        run: pip install requests python-dotenv openpyxl anthropic
+        run: pip install requests python-dotenv anthropic
 
       # ── 3. Classify ──────────────────────────────────────────────────────────
       - name: CY — Classify new ads

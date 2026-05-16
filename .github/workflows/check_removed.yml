@@ -2,7 +2,7 @@ name: Check Removed Ads — CY + MT
 
 on:
   schedule:
-    - cron: '0 1,7,13,19 * * *'   # every 6 hours: 01:00, 07:00, 13:00, 19:00 UTC
+    - cron: '0 2,8,14,20 * * *'   # every 6 hours: 02:00, 08:00, 14:00, 20:00 UTC
   workflow_dispatch:
 
 jobs:
