@@ -164,7 +164,7 @@ checked_n = int(df['removed'].notna().sum())
 col6.metric(
     "Removed by Meta",
     f"{removed_n:,}",
-    help=f"Checked: {checked_n:,} / {len(df):,}" if checked_n else "Run check_removed_ads_mt.py",
+    help=f"Checked: {checked_n:,} / {len(df):,}" if checked_n else "Run check_removed_ads_api.py --mt",
 )
 
 total_spend_max = df['spend_max'].sum()

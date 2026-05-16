@@ -749,7 +749,9 @@ def load_unclassified_mirror(conn, country, since, limit, reset_no, blocklist=No
     else:
         where_parts.append("election_related IS NULL")
 
-    where_parts.append("removed = 0")
+    # NOTE: removed ads ARE included — they still need election_related classification
+    # so they appear correctly in "Removed by Meta" dashboard metrics.
+    # Do NOT add a removed=0 filter here.
 
     sql = f"""
         SELECT ad_archive_id, politician_query, party, district,
@@ -810,15 +812,16 @@ class TestClassifyBlocklist(unittest.TestCase):
         self.assertIn("no_ad", ids)
         self.assertIn("null_ad", ids)
 
-    def test_removed_ads_skipped(self):
-        """Removed ads must not be classified — they're gone."""
+    def test_removed_ads_are_classified(self):
+        """Removed ads ARE included for classification — we still need election_related
+        so they show correctly in the 'Removed by Meta' dashboard metric."""
         conn = make_classify_db()
         self._insert(conn, "active",  "p1", removed=0)
         self._insert(conn, "removed", "p2", removed=1)
         ads = load_unclassified_mirror(conn, "MT", "2025-01-01", None, False)
         ids = {a["ad_archive_id"] for a in ads}
         self.assertIn("active", ids)
-        self.assertNotIn("removed", ids)
+        self.assertIn("removed", ids)
 
     def test_limit_respected(self):
         """Limit parameter must cap the number of ads returned."""

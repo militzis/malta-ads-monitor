@@ -27,7 +27,7 @@ jobs:
           cache: 'pip'
 
       - name: Install Python dependencies
-        run: pip install requests python-dotenv
+        run: pip install requests python-dotenv openpyxl
 
       # ── 3. Check removed ads via Meta API (no browser) ───────────────────────
       - name: Check removed ads (CY + MT)

@@ -34,7 +34,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python classify_ads.py --country CY
+        run: python classify_ads.py --country CY --since 2025-09-01
 
       - name: MT — Classify new ads
         env:

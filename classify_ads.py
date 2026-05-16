@@ -69,7 +69,7 @@ COMMON_KEYWORDS = [
 ]
 
 # Sources that are always election-related by design (page matched by name search)
-TRUSTED_SOURCES = {"greek", "latin", "malta", "verified"}
+TRUSTED_SOURCES = {"greek", "latin", "mt", "verified"}
 
 # Clearly-non-election page name fragments (fast skip before AI)
 SKIP_FRAGMENTS = [

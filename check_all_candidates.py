@@ -206,7 +206,17 @@ def upsert_ads(ads: list[dict]) -> int:
                     ad_stop_date        = excluded.ad_stop_date,
                     page_name           = excluded.page_name,
                     checked_at          = excluded.checked_at,
-                    ad_text             = excluded.ad_text
+                    ad_text             = excluded.ad_text,
+                    -- Never downgrade removed=1 → 0 (removal checker is authoritative)
+                    removed             = CASE
+                                           WHEN excluded.removed = 1 THEN 1
+                                           ELSE politician_ads.removed
+                                         END,
+                    removed_checked_at  = CASE
+                                           WHEN excluded.removed_checked_at IS NOT NULL
+                                           THEN excluded.removed_checked_at
+                                           ELSE politician_ads.removed_checked_at
+                                         END
                     -- first_seen_at intentionally NOT updated: set once on first INSERT only
             """, (
                 ad.get("id"),
