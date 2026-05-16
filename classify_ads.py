@@ -213,13 +213,22 @@ def classify_with_ai(ad: dict, client) -> tuple[str, str]:
     text = ad.get("ad_text") or ""
     page = ad.get("page_name") or ""
 
+    # Sanitise ad_text to prevent prompt injection: strip any lines that start
+    # with "RELATED:" or "REASON:" so an advertiser cannot spoof the expected
+    # output format by embedding it in their ad copy.
+    _INJECTION_PREFIXES = ("related:", "reason:")
+    text_safe = "\n".join(
+        line for line in text[:600].splitlines()
+        if not line.strip().lower().startswith(_INJECTION_PREFIXES)
+    ) if text else ""
+
     prompt = f"""You are analysing a Facebook ad from {country_hint} ({country_hint} parliamentary elections 2025-2026).
 Determine if this ad is directly related to electoral campaigning or political candidates.
 
 Candidate in our database : {name}
 Party                     : {party}
 Facebook page name        : {page}
-Ad text                   : {text[:600] if text else "(no text — judge by page name and candidate name)"}
+Ad text                   : {text_safe if text_safe else "(no text — judge by page name and candidate name)"}
 
 Answer ONLY in this exact format (two lines, no extra text):
 RELATED: YES / NO / UNCERTAIN

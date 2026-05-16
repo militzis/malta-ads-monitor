@@ -78,9 +78,14 @@ def save_fetch_date(script_key: str):
         except Exception:
             pass
     state[script_key] = date.today().isoformat()
-    with open(FETCH_STATE_FILE, 'w', encoding='utf-8') as f:
-        json.dump(state, f, indent=2)
-    print(f"[state] Saved last-run date for '{script_key}': {state[script_key]}")
+    tmp = FETCH_STATE_FILE + ".tmp"
+    try:
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(state, f, indent=2)
+        os.replace(tmp, FETCH_STATE_FILE)
+        print(f"[state] Saved last-run date for '{script_key}': {state[script_key]}")
+    except Exception as e:
+        print(f"[state] WARNING: could not save last-run date for '{script_key}': {e}")
 
 
 def load_chunk_pos(script_key: str) -> int:
@@ -104,9 +109,11 @@ def save_chunk_pos(script_key: str, pos: int):
         except Exception:
             pass
     state[f"{script_key}_chunk_pos"] = pos
+    tmp = FETCH_STATE_FILE + ".tmp"
     try:
-        with open(FETCH_STATE_FILE, 'w', encoding='utf-8') as f:
+        with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(state, f, indent=2)
+        os.replace(tmp, FETCH_STATE_FILE)
         print(f"[state] Chunk position for '{script_key}': {pos}")
     except Exception as e:
         print(f"[state] WARNING: could not save chunk position for '{script_key}': {e}")

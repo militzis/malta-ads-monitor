@@ -134,7 +134,8 @@ if sel_parties:
 if sel_candidates:
     df = df[df['candidate'].isin(sel_candidates)]
 if active_only:
-    df = df[df['ad_stop_date'].isna()]
+    today_ts = pd.Timestamp.today().normalize()
+    df = df[df['ad_stop_date'].isna() | (df['ad_stop_date'] >= today_ts)]
 if removed_filter == "Removed only":
     df = df[df['removed'] == 1]
 elif removed_filter == "Exclude removed":

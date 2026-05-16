@@ -167,18 +167,14 @@ def get_ad(conn, ad_archive_id):
     return dict(zip(cols, row))
 
 
-# ── is_removed_text() — inline copy from check_removed_ads_*.py ──────────────
+# ── is_removed_text() — uses the EXACT same constant as production ─────────────
+# Production code in check_removed_ads_api.py and fetch_by_page_ids_cy.py both
+# use a single lowercase string constant for removal detection.  Keep in sync.
+
+REMOVAL_TEXT = "this content was removed because it didn't follow our advertising standards"
 
 def is_removed_text(body: str) -> bool:
-    b = body.lower()
-    strong_markers = [
-        "didn't follow our advertising standards",
-        "did not follow our advertising standards",
-        "this content was removed",
-        "content was removed because",
-        "removed because it didn",
-    ]
-    return any(m in b for m in strong_markers)
+    return REMOVAL_TEXT in (body or "").lower()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -492,30 +488,42 @@ class TestQueryParsing(unittest.TestCase):
 class TestIsRemovedText(unittest.TestCase):
 
     def test_standard_removal_message(self):
-        body = "This content was removed because it didn't follow our Advertising Standards."
+        """Exact Meta removal notice (lowercase) must be detected."""
+        body = "this content was removed because it didn't follow our advertising standards"
         self.assertTrue(is_removed_text(body))
 
-    def test_alternative_removal_message(self):
-        body = "This content did not follow our Advertising Standards."
+    def test_case_insensitive(self):
+        """Detection must be case-insensitive (body is lowercased before comparison)."""
+        body = "THIS CONTENT WAS REMOVED BECAUSE IT DIDN'T FOLLOW OUR ADVERTISING STANDARDS"
         self.assertTrue(is_removed_text(body))
 
-    def test_partial_match(self):
-        body = "content was removed because it didn't meet policy"
+    def test_exact_phrase_with_surrounding_text(self):
+        """Removal notice embedded in a longer body must still be detected."""
+        body = ("Some ad content here. "
+                "This content was removed because it didn't follow our advertising standards. "
+                "More text after.")
         self.assertTrue(is_removed_text(body))
 
     def test_active_ad_not_detected(self):
+        """Normal active ad text must not trigger detection."""
         body = "Vote for me! I will improve your community. Learn more about my campaign."
         self.assertFalse(is_removed_text(body))
 
     def test_empty_body(self):
+        """Empty string must not trigger detection."""
         self.assertFalse(is_removed_text(""))
 
-    def test_case_insensitive(self):
-        body = "THIS CONTENT WAS REMOVED BECAUSE IT DIDN'T FOLLOW OUR ADVERTISING STANDARDS"
-        self.assertTrue(is_removed_text(body))
+    def test_none_body(self):
+        """None must not trigger detection."""
+        self.assertFalse(is_removed_text(None))
+
+    def test_partial_phrase_not_detected(self):
+        """A phrase that is similar but NOT the exact Meta notice must NOT trigger."""
+        body = "content was removed because it didn't meet policy"
+        self.assertFalse(is_removed_text(body))
 
     def test_partial_word_not_matched(self):
-        """'advertising' alone without removal context must not trigger."""
+        """'advertising' alone without the full removal notice must not trigger."""
         body = "Great advertising opportunity! Contact us today."
         self.assertFalse(is_removed_text(body))
 
@@ -839,14 +847,14 @@ class TestClassifyBlocklist(unittest.TestCase):
 def load_page_ids_mirror(conn, blocklist):
     """
     Mirror of fetch_by_page_ids_cy.load_page_ids() — kept in sync with script.
-    Only returns pages with election_related=YES, excluding the blocklist.
+    Returns pages with election_related IN ('YES', 'UNCERTAIN'), excluding blocklist.
     """
     rows = conn.execute("""
         SELECT page_id, MAX(page_name), MAX(politician_query),
                MAX(party), MAX(district), MAX(source), COUNT(*) AS ads
         FROM politician_ads
         WHERE page_id IS NOT NULL AND page_id != ''
-          AND election_related = 'YES'
+          AND election_related IN ('YES', 'UNCERTAIN')
         GROUP BY page_id ORDER BY ads DESC
     """).fetchall()
     pages = [dict(zip(
