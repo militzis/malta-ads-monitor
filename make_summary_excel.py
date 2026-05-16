@@ -184,7 +184,7 @@ def build_party_sheet(ws, rows, country, fill, hdr_font, alt_fill, link_font, to
     ws.append([])
 
     headers = ["Party", "🟢 Active", "⚫ Inactive", "❌ Removed", "Total Ads",
-               "Max Impressions", "Max Spend (€)"]
+               "Total Impressions", "Total Spend (€)"]
     write_header(ws, headers, fill, hdr_font)
     ws.row_dimensions[3].height = 22  # header is row 3
 
