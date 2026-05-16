@@ -165,6 +165,26 @@ def init_db():
     conn.close()
 
 
+REMOVAL_TEXT = "this content was removed because it didn't follow our advertising standards"
+
+
+def _detect_removal(ad: dict) -> tuple[int, str | None]:
+    """
+    Inspect ad_creative_bodies for the removal notice Meta injects when an ad
+    violates Advertising Standards.  Returns (removed_int, checked_at_or_None).
+
+    - bodies present, removal text found  → (1, now)
+    - bodies present, no removal text     → (0, now)   ← confirmed active
+    - bodies absent (API returned nothing)→ (0, None)  ← unknown; don't stamp
+    """
+    bodies = ad.get("ad_creative_bodies") or []
+    now = datetime.now(timezone.utc).isoformat()
+    if bodies:
+        is_removed = any(REMOVAL_TEXT in (b or "").lower() for b in bodies)
+        return (1, now) if is_removed else (0, now)
+    return (0, None)
+
+
 def upsert_ads(ads: list[dict]) -> int:
     conn = sqlite3.connect(DB_PATH)
     now = datetime.now(timezone.utc).isoformat()
@@ -173,9 +193,13 @@ def upsert_ads(ads: list[dict]) -> int:
         imp   = ad.get("impressions", {})
         spend = ad.get("spend", {})
         try:
-            bodies = " ".join(ad.get("ad_creative_bodies") or [])
-            titles = " ".join(ad.get("ad_creative_link_titles") or [])
-            ad_text = (bodies + " " + titles).strip()[:1000] or None
+            raw_bodies = ad.get("ad_creative_bodies") or []
+            titles     = ad.get("ad_creative_link_titles") or []
+            bodies_str = " ".join(raw_bodies)
+            titles_str = " ".join(titles)
+            ad_text = (bodies_str + " " + titles_str).strip()[:1000] or None
+
+            removed_val, removed_checked = _detect_removal(ad)
 
             conn.execute("""
                 INSERT INTO politician_ads
@@ -196,7 +220,17 @@ def upsert_ads(ads: list[dict]) -> int:
                     ad_stop_date        = excluded.ad_stop_date,
                     page_name           = excluded.page_name,
                     checked_at          = excluded.checked_at,
-                    ad_text             = excluded.ad_text
+                    ad_text             = excluded.ad_text,
+                    -- Removal: upgrade to 1 if newly detected; never downgrade 1→0
+                    removed             = CASE
+                                           WHEN excluded.removed = 1 THEN 1
+                                           ELSE politician_ads.removed
+                                         END,
+                    removed_checked_at  = CASE
+                                           WHEN excluded.removed_checked_at IS NOT NULL
+                                           THEN excluded.removed_checked_at
+                                           ELSE politician_ads.removed_checked_at
+                                         END
                     -- first_seen_at intentionally NOT updated
             """, (
                 ad.get("id"),
@@ -217,8 +251,8 @@ def upsert_ads(ads: list[dict]) -> int:
                 ad.get("ad_snapshot_url"),
                 now,
                 'mt',
-                0,
-                None,
+                removed_val,
+                removed_checked,
                 ad_text,
                 now,   # first_seen_at — set once on first INSERT only
             ))

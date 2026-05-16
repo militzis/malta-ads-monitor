@@ -81,15 +81,40 @@ def load_page_ids(conn, blocklist: set) -> list[dict]:
     return [p for p in pages if p['page_id'] not in blocklist]
 
 
+REMOVAL_TEXT = "this content was removed because it didn't follow our advertising standards"
+
+
+def _detect_removal(ad: dict) -> tuple[int, str | None]:
+    """
+    Inspect ad_creative_bodies for the removal notice Meta injects when an ad
+    violates Advertising Standards.  Returns (removed_int, checked_at_or_None).
+
+    - bodies present, removal text found  → (1, now)
+    - bodies present, no removal text     → (0, now)   ← ad is confirmed active
+    - bodies absent (API returned nothing)→ (0, None)  ← unknown; don't stamp
+    """
+    bodies = ad.get("ad_creative_bodies") or []
+    now = datetime.now(timezone.utc).isoformat()
+    if bodies:
+        is_removed = any(REMOVAL_TEXT in (b or "").lower() for b in bodies)
+        return (1, now) if is_removed else (0, now)
+    return (0, None)
+
+
 def upsert_ads(conn, ads: list[dict], source: str) -> int:
     now = datetime.now(timezone.utc).isoformat()
     saved = 0
     for ad in ads:
         imp   = ad.get("impressions", {})
         spend = ad.get("spend", {})
-        bodies = " ".join(ad.get("ad_creative_bodies") or [])
-        titles = " ".join(ad.get("ad_creative_link_titles") or [])
-        ad_text = (bodies + " " + titles).strip()[:1000] or None
+        raw_bodies = ad.get("ad_creative_bodies") or []
+        titles     = ad.get("ad_creative_link_titles") or []
+        bodies_str = " ".join(raw_bodies)
+        titles_str = " ".join(titles)
+        ad_text = (bodies_str + " " + titles_str).strip()[:1000] or None
+
+        removed_val, removed_checked = _detect_removal(ad)
+
         try:
             conn.execute("""
                 INSERT INTO politician_ads
@@ -103,13 +128,23 @@ def upsert_ads(conn, ads: list[dict], source: str) -> int:
                      first_seen_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(ad_archive_id) DO UPDATE SET
-                    impressions_min  = excluded.impressions_min,
-                    impressions_max  = excluded.impressions_max,
-                    spend_min        = excluded.spend_min,
-                    spend_max        = excluded.spend_max,
-                    ad_stop_date     = excluded.ad_stop_date,
-                    page_name        = excluded.page_name,
-                    checked_at       = excluded.checked_at
+                    impressions_min      = excluded.impressions_min,
+                    impressions_max      = excluded.impressions_max,
+                    spend_min            = excluded.spend_min,
+                    spend_max            = excluded.spend_max,
+                    ad_stop_date         = excluded.ad_stop_date,
+                    page_name            = excluded.page_name,
+                    checked_at           = excluded.checked_at,
+                    -- Removal: upgrade to 1 if newly detected; never downgrade 1→0
+                    removed              = CASE
+                                            WHEN excluded.removed = 1 THEN 1
+                                            ELSE politician_ads.removed
+                                          END,
+                    removed_checked_at   = CASE
+                                            WHEN excluded.removed_checked_at IS NOT NULL
+                                            THEN excluded.removed_checked_at
+                                            ELSE politician_ads.removed_checked_at
+                                          END
                     -- first_seen_at intentionally NOT updated: set once on first insert
             """, (
                 ad.get("id"),
@@ -130,7 +165,7 @@ def upsert_ads(conn, ads: list[dict], source: str) -> int:
                 ad.get("ad_snapshot_url"),
                 now,
                 source,
-                0, None,
+                removed_val, removed_checked,
                 ad_text,
                 now,   # first_seen_at — only written on first INSERT
             ))

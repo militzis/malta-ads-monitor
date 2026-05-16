@@ -8,7 +8,7 @@ on:
 jobs:
   check-removed:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 30
     permissions:
       contents: write
 
@@ -19,7 +19,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 2. Python + Playwright setup ─────────────────────────────────────────
+      # ── 2. Python setup ──────────────────────────────────────────────────────
       - name: Set up Python 3.12
         uses: actions/setup-python@v6
         with:
@@ -27,30 +27,13 @@ jobs:
           cache: 'pip'
 
       - name: Install Python dependencies
-        run: pip install requests python-dotenv playwright
+        run: pip install requests python-dotenv
 
-      - name: Cache Playwright browsers
-        uses: actions/cache@v5
-        id: playwright-cache
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('**/requirements*.txt') }}
-          restore-keys: |
-            playwright-chromium-${{ runner.os }}-
-
-      - name: Install Chromium (only if not cached)
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: playwright install chromium --with-deps
-
-      - name: Install Chromium system deps (always)
-        run: playwright install-deps chromium
-
-      # ── 3. Check removed ads ─────────────────────────────────────────────────
-      - name: CY — Check removed ads
-        run: python check_removed_ads_cy.py --concurrency 3 --recheck-days 0.25 --limit 400
-
-      - name: MT — Check removed ads
-        run: python check_removed_ads_mt.py --concurrency 3 --recheck-days 0.25 --limit 200
+      # ── 3. Check removed ads via Meta API (no browser) ───────────────────────
+      - name: Check removed ads (CY + MT)
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: python check_removed_ads_api.py --recheck-days 3 --sleep 3
 
       # ── 4. Commit ────────────────────────────────────────────────────────────
       - name: Commit and push
