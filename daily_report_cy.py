@@ -116,7 +116,12 @@ def get_new_ads(conn, blocklist: set, hours: int) -> list[dict]:
     cols_in_db = {r[1] for r in conn.execute("PRAGMA table_info(politician_ads)").fetchall()}
     er_filter  = "AND (election_related IS NULL OR election_related != 'NO')" \
                  if "election_related" in cols_in_db else ""
-    fsa_col    = "first_seen_at" if "first_seen_at" in cols_in_db else "checked_at"
+
+    # Use COALESCE so ads with NULL first_seen_at fall back to checked_at.
+    # (first_seen_at is only populated for ads inserted after the column was added;
+    #  checked_at is always set and updated on every upsert.)
+    fsa_expr = "COALESCE(first_seen_at, checked_at)" \
+               if "first_seen_at" in cols_in_db else "checked_at"
 
     sql = f"""
         SELECT
@@ -133,12 +138,12 @@ def get_new_ads(conn, blocklist: set, hours: int) -> list[dict]:
             spend_min,
             spend_max,
             currency,
-            {fsa_col} AS first_seen_at
+            {fsa_expr} AS first_seen_at
         FROM politician_ads
-        WHERE {fsa_col} >= ?
+        WHERE {fsa_expr} >= ?
           AND removed = 0
           {er_filter}
-        ORDER BY {fsa_col} DESC
+        ORDER BY {fsa_expr} DESC
     """
     rows = conn.execute(sql, (cutoff,)).fetchall()
     col_names = ["ad_archive_id","page_id","page_name","politician_query","party","district",
