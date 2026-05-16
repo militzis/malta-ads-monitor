@@ -14,13 +14,19 @@ Strategy:
   4. Detect removal; update DB (never downgrade removed=1→0).
 
 Usage:
-    python check_removed_ads_api.py                 # CY + MT, unchecked + stale
-    python check_removed_ads_api.py --cy            # CY only
-    python check_removed_ads_api.py --mt            # MT only
-    python check_removed_ads_api.py --all           # re-check all active ads
-    python check_removed_ads_api.py --limit 1000    # cap total ads checked
+    python check_removed_ads_api.py                      # CY + MT, unchecked + stale
+    python check_removed_ads_api.py --cy                 # CY only
+    python check_removed_ads_api.py --mt                 # MT only
+    python check_removed_ads_api.py --all                # re-check all active ads
+    python check_removed_ads_api.py --active-only        # fast mode: only pages with running ads
+    python check_removed_ads_api.py --limit 1000         # cap total ads checked
     python check_removed_ads_api.py --recheck-days 7
-    python check_removed_ads_api.py --sleep 2       # seconds between page requests
+    python check_removed_ads_api.py --sleep 2            # seconds between page requests
+
+--active-only mode:
+    Restricts checking to pages that currently have at least one running ad
+    (ad_stop_date IS NULL or >= today).  Only checks non-removed ads on those pages.
+    CY: ~26 pages (~78 sec).  MT: ~30 pages (~90 sec).  Safe to run hourly.
 """
 
 import os, sys, sqlite3, json, time, argparse, requests
@@ -50,6 +56,33 @@ REMOVAL_TEXT = "this content was removed because it didn't follow our advertisin
 
 
 # ── DB ────────────────────────────────────────────────────────────────────────
+
+def load_active_page_ads(conn) -> list[dict]:
+    """
+    Fast-check mode (--active-only): return all non-removed ads that belong to
+    pages currently running at least one ad (stop_date IS NULL or >= today).
+
+    This restricts the API call queue to only the pages that matter right now,
+    making the check fast enough to run hourly without hitting rate limits.
+    """
+    today_str = str(date.today())
+    rows = conn.execute("""
+        SELECT a.ad_archive_id, a.page_id, a.ad_start_date
+        FROM politician_ads a
+        WHERE a.page_id IN (
+            SELECT DISTINCT page_id
+            FROM politician_ads
+            WHERE (ad_stop_date IS NULL OR ad_stop_date = '' OR ad_stop_date >= ?)
+              AND election_related IN ('YES', 'UNCERTAIN')
+              AND page_id IS NOT NULL AND page_id != ''
+        )
+        AND a.election_related IN ('YES', 'UNCERTAIN')
+        AND (a.removed IS NULL OR a.removed = 0)
+        ORDER BY a.ad_start_date DESC
+    """, (today_str,)).fetchall()
+    return [{'ad_archive_id': r[0], 'page_id': str(r[1] or ''), 'ad_start_date': r[2] or ''}
+            for r in rows]
+
 
 def load_unchecked(conn, only_unchecked: bool, recheck_days: float,
                    since: str, limit: int) -> list[dict]:
@@ -362,15 +395,22 @@ def process_db(db_path: str, country: str, args, token: str,
     print(f"{'═'*60}")
 
     conn = sqlite3.connect(db_path)
-    ads  = load_unchecked(conn, only_unchecked=not args.all,
-                          recheck_days=args.recheck_days,
-                          since=args.since, limit=args.limit)
+
+    if args.active_only:
+        ads = load_active_page_ads(conn)
+        mode_label = "active-only"
+    else:
+        ads = load_unchecked(conn, only_unchecked=not args.all,
+                             recheck_days=args.recheck_days,
+                             since=args.since, limit=args.limit)
+        mode_label = "full"
 
     if not ads:
         print(f"  Nothing to check.")
         conn.close()
         return {'total': 0, 'removed': 0, 'active': 0, 'skipped': 0}
 
+    print(f"  Mode         : {mode_label}")
     print(f"  Ads to check : {len(ads):,}")
 
     # Group by page_id to batch API calls
@@ -478,6 +518,9 @@ def main():
     parser.add_argument('--mt',           action='store_true', help='MT only')
     parser.add_argument('--all',          action='store_true',
                         help='Re-check all active ads (default: unchecked + stale)')
+    parser.add_argument('--active-only',  action='store_true',
+                        help='Fast mode: only pages with currently-running ads (~78s CY, ~90s MT). '
+                             'Safe to run hourly.')
     parser.add_argument('--since',        default='',
                         help='Only check ads with start_date >= DATE')
     parser.add_argument('--limit',        type=int, default=0,

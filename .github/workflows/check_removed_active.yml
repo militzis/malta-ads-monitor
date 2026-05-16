@@ -1,0 +1,56 @@
+name: Check Removed Ads — Active Pages (Hourly)
+
+on:
+  schedule:
+    - cron: '15 * * * *'   # every hour at :15 (offset from the 6-hourly full check at :00)
+  workflow_dispatch:
+
+jobs:
+  check-active:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      # ── 1. Checkout ─────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 2. Python setup ──────────────────────────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: pip install requests python-dotenv openpyxl
+
+      # ── 3. Fast active-only removal check ────────────────────────────────────
+      # Only checks pages that currently have a running ad (~26 CY + ~30 MT pages).
+      # Takes ~3–4 minutes vs ~17 minutes for the full check.
+      - name: Check active pages for removals (CY + MT)
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+        run: python check_removed_ads_api.py --active-only --sleep 3
+
+      # ── 4. Commit ────────────────────────────────────────────────────────────
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -u
+          if git diff --staged --quiet; then
+            echo "Nothing changed — skipping commit."
+          else
+            git commit -m "auto: active-check $(date -u +%Y-%m-%dT%H:%M)Z"
+            if git pull --rebase origin main; then
+              git push
+            else
+              git rebase --abort
+              echo "Rebase conflict — skipping push this run, will retry next run."
+            fi
+          fi
