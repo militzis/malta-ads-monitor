@@ -2,7 +2,7 @@ name: Cyprus Ads — Daily Spend Refresh
 
 on:
   schedule:
-    - cron: '0 2 * * *'   # 02:00 UTC daily (between the 00:00 and 03:00 CY runs)
+    - cron: '0 1 * * *'   # 01:00 UTC daily (check_removed runs at 02:00, avoid conflict)
   workflow_dispatch:
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
           cache: 'pip'
 
       - name: Install Python dependencies
-        run: pip install requests python-dotenv openpyxl anthropic
+        run: pip install requests python-dotenv openpyxl
 
       # ════════════════════════════════════════════════════════════════════════
       # Re-fetch last 14 days for all known CY pages to update
