@@ -41,7 +41,9 @@ CREATE TABLE IF NOT EXISTS politician_ads (
     source              TEXT DEFAULT 'greek',
     removed             INTEGER DEFAULT 0,
     removed_checked_at  TEXT,
-    ad_text             TEXT
+    ad_text             TEXT,
+    election_related    TEXT,
+    first_seen_at       TEXT
 )
 """
 
@@ -684,6 +686,7 @@ class TestSchema(unittest.TestCase):
             "spend_min", "spend_max", "currency",
             "removed", "removed_checked_at",
             "source", "checked_at", "ad_text",
+            "election_related", "first_seen_at",
         }
         for col in required:
             self.assertIn(col, cols, f"Missing column: {col}")

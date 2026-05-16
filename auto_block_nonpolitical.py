@@ -169,8 +169,6 @@ EXPLICIT_BLOCK = {
     "123673594152742": "Dott. Marco Bianchi (non-Cyprus politician)",
     # Consumer org
     "484951294976883": "Κυπριακός Σύνδεσμος Καταναλωτών (consumer association)",
-    # Tech/IT
-    "813920905144708": "Women4Cyber Cyprus (cybersecurity org)",
     # Other clearly non-political
     "253826851152246": "Σταμάτης Στάμος Παπαβασιλείου (non-politician - duplicate with Stamos)",
     "335236209662864": "Stamos Papavasiliou (non-politician)",

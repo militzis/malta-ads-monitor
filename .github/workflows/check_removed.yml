@@ -5,6 +5,10 @@ on:
     - cron: '0 2,8,14,20 * * *'   # every 6 hours: 02:00, 08:00, 14:00, 20:00 UTC
   workflow_dispatch:
 
+concurrency:
+  group: db-write
+  cancel-in-progress: false
+
 jobs:
   check-removed:
     runs-on: ubuntu-latest

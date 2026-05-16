@@ -5,6 +5,10 @@ on:
     - cron: '0 1 * * *'   # 01:00 UTC daily (check_removed runs at 02:00, avoid conflict)
   workflow_dispatch:
 
+concurrency:
+  group: db-write
+  cancel-in-progress: false
+
 jobs:
   spend_refresh:
     runs-on: ubuntu-latest

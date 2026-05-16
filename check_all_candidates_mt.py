@@ -122,7 +122,7 @@ PARTY_TERMS = {
     "ADPD":            ["adpd", "alternattiva demokratika"],
     "Imperium Ewropa": ["imperium ewropa", "imperium"],
     "Ahwa Maltin":     ["ahwa maltin", "partit popolari", "people's party"],
-    "Independent":     [],
+    "Independent":     ["independent", "indipendenti", "indipendent"],
 }
 
 

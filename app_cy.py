@@ -48,6 +48,7 @@ def load_data():
         return pd.DataFrame()
 
     conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL")   # RC-02: allow concurrent reads during writes
     # Use election_related='YES' — pre-classified by AI, cleaned manually
     df = pd.read_sql_query(
         "SELECT * FROM politician_ads WHERE election_related='YES' AND ad_start_date >= '2025-10-01'",

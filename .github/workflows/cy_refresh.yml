@@ -5,6 +5,10 @@ on:
     - cron: '0 0,3,6,9,12,15,18,21 * * *'   # every 3 hours, on the hour
   workflow_dispatch:
 
+concurrency:
+  group: db-write
+  cancel-in-progress: false
+
 jobs:
   refresh:
     runs-on: ubuntu-latest

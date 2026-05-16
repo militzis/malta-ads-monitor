@@ -5,6 +5,10 @@ on:
     - cron: '0 5,17 * * *'   # twice a day: 05:00 and 17:00 UTC (avoids cy_refresh at :00)
   workflow_dispatch:
 
+concurrency:
+  group: db-write
+  cancel-in-progress: false
+
 jobs:
   classify:
     runs-on: ubuntu-latest
