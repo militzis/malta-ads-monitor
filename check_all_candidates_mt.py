@@ -272,16 +272,29 @@ def upsert_ads(ads: list[dict]) -> int:
 def _fetch_raw(params: dict) -> list[dict]:
     all_ads = []
     url = META_AD_LIBRARY_URL
+    retries = 0
+    MAX_RETRIES = 2
     try:
         while url:
             resp = requests.get(url, params=params, timeout=30)
             if resp.status_code != 200:
                 try:
-                    err_msg = resp.json().get('error', {}).get('message', resp.text[:200])
+                    err_body = resp.json().get('error', {})
+                    err_code = err_body.get('code', 0)
+                    err_msg  = err_body.get('message', resp.text[:200])
                 except Exception:
-                    err_msg = resp.text[:200]
+                    err_code = 0
+                    err_msg  = resp.text[:200]
+                # Rate limit: sleep and retry
+                if err_code == 613 and retries < MAX_RETRIES:
+                    wait = 60 * (2 ** retries)
+                    print(f"    [rate limit] sleeping {wait}s then retrying…")
+                    time.sleep(wait)
+                    retries += 1
+                    continue
                 print(f"    [!] API error {resp.status_code}: {err_msg}")
                 break
+            retries = 0
             data = resp.json()
             all_ads.extend(data.get("data", []))
             next_url = data.get("paging", {}).get("next")
