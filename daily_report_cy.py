@@ -117,11 +117,12 @@ def get_new_ads(conn, blocklist: set, hours: int) -> list[dict]:
     er_filter  = "AND (election_related IS NULL OR election_related != 'NO')" \
                  if "election_related" in cols_in_db else ""
 
-    # Use COALESCE so ads with NULL first_seen_at fall back to checked_at.
-    # (first_seen_at is only populated for ads inserted after the column was added;
-    #  checked_at is always set and updated on every upsert.)
-    fsa_expr = "COALESCE(first_seen_at, checked_at)" \
-               if "first_seen_at" in cols_in_db else "checked_at"
+    # Use COALESCE so ads with NULL first_seen_at fall back to ad_start_date.
+    # Deliberately NOT falling back to checked_at: checked_at is updated on every
+    # upsert, so a May-7 ad re-fetched on May-16 would appear as "new today".
+    # ad_start_date is when the ad actually started running — a much better proxy.
+    fsa_expr = "COALESCE(first_seen_at, ad_start_date)" \
+               if "first_seen_at" in cols_in_db else "ad_start_date"
 
     sql = f"""
         SELECT
