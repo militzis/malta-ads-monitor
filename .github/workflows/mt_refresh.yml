@@ -42,6 +42,9 @@ jobs:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
         run: python check_all_candidates_mt.py --chunk-size 80
 
+      - name: MT — Generate 3h report
+        run: python daily_report_mt.py --hours 3
+
       # ════════════════════════════════════════════════════════════════════════
       # SUMMARY (reads both DBs — CY DB is from last CY run, 30 min ago)
       # ════════════════════════════════════════════════════════════════════════
@@ -55,7 +58,7 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add politician_ads_mt.db fetch_state_mt.json  # MT DB + state only (never touch CY DB)
-          git add summary_*.xlsx || true          # also new Excel files
+          git add daily_report_mt_*.xlsx summary_*.xlsx || true   # also new Excel files
           if git diff --staged --quiet; then
             echo "Nothing changed — skipping commit."
           else
