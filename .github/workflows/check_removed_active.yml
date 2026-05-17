@@ -39,6 +39,7 @@ jobs:
       - name: Check active pages for removals (CY + MT)
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_ACCESS_TOKEN_MT: ${{ secrets.META_ACCESS_TOKEN_MT }}
         run: python check_removed_ads_api.py --active-only --sleep 0.5
 
       # ── 4. Commit ────────────────────────────────────────────────────────────

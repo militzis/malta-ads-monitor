@@ -631,8 +631,9 @@ def main():
                              'Ignored in --active-only mode.')
     args = parser.parse_args()
 
-    token = os.environ.get("META_ACCESS_TOKEN")
-    if not token:
+    cy_token = os.environ.get("META_ACCESS_TOKEN")
+    mt_token = os.environ.get("META_ACCESS_TOKEN_MT") or cy_token  # fall back to shared token
+    if not cy_token:
         sys.exit("ERROR: META_ACCESS_TOKEN not set in environment or .env")
 
     run_cy = not args.mt   # run CY unless --mt-only
@@ -644,12 +645,12 @@ def main():
     totals = {'total': 0, 'removed': 0, 'active': 0, 'skipped': 0}
 
     if run_cy:
-        r = process_db(CY_DB, "CY", args, token, existing_log_ids)
+        r = process_db(CY_DB, "CY", args, cy_token, existing_log_ids)
         for k in totals:
             totals[k] += r[k]
 
     if run_mt:
-        r = process_db(MT_DB, "MT", args, token, existing_log_ids)
+        r = process_db(MT_DB, "MT", args, mt_token, existing_log_ids)
         for k in totals:
             totals[k] += r[k]
 
