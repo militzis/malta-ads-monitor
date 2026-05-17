@@ -159,15 +159,17 @@ def get_new_ads(conn, blocklist: set, hours: int) -> list[dict]:
     return result
 
 
-def get_readvertisers(conn, blocklist: set) -> list[dict]:
+def get_readvertisers(conn, blocklist: set, hours: int) -> list[dict]:
     """
     Pages that:
       (a) have at least one removed election ad  AND
-      (b) have at least one active ad whose ad_start_date is AFTER the
-          date their first removal was detected.
+      (b) have at least one active ad whose first_seen_at (or ad_start_date)
+          is AFTER the date their first removal was detected AND within the
+          last `hours` hours.
 
-    Returns the NEW active ads for those pages, annotated with removal info.
+    The hours cutoff prevents re-showing the same ads on every report run.
     """
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     # Check if election_related column exists
     cols_in_db = {r[1] for r in conn.execute("PRAGMA table_info(politician_ads)").fetchall()}
     er_filter_removed = "AND (pa2.election_related IS NULL OR pa2.election_related != 'NO')" \
@@ -209,17 +211,19 @@ def get_readvertisers(conn, blocklist: set) -> list[dict]:
             FROM politician_ads pa
             JOIN first_removal fr ON pa.page_id = fr.page_id
             WHERE pa.removed = 0
-              -- Use first_seen_at (reliable) if available, fall back to ad_start_date
-              -- Compare date portions only to avoid mixing full timestamps with date-only strings.
-              -- first_seen_at is a UTC timestamp; ad_start_date is YYYY-MM-DD; SUBSTR normalises both.
+              -- Must have started after the page's first removal
               AND SUBSTR(COALESCE(pa.first_seen_at, pa.ad_start_date), 1, 10)
                   > SUBSTR(fr.first_removed_at, 1, 10)
+              -- Must be new within the report window (same cutoff as new_ads)
+              -- Uses first_seen_at if available, falls back to ad_start_date —
+              -- deliberately NOT checked_at which is updated on every re-fetch.
+              AND COALESCE(pa.first_seen_at, pa.ad_start_date) >= ?
               {er_filter_new}
         )
         SELECT * FROM new_ads
         ORDER BY page_id, ad_start_date DESC
     """
-    rows = conn.execute(sql).fetchall()
+    rows = conn.execute(sql, (cutoff,)).fetchall()
     cols = ["ad_archive_id","page_id","page_name","politician_query","party","district",
             "ad_start_date","ad_stop_date",
             "impressions_min","impressions_max","spend_min","spend_max","currency",
@@ -377,10 +381,18 @@ def write_excel(removed_rows: list[dict], readv_rows: list[dict],
         new_removed = [r for r in removed_rows
                        if r["ad_archive_id"] not in existing_ids]
 
-        # ── Re-Advertisers sheet: always full refresh ───────────────────────
+        # ── Re-Advertisers sheet: append only new rows ──────────────────────
         if SHEET_READV in wb.sheetnames:
-            del wb[SHEET_READV]
-        ws2 = wb.create_sheet(SHEET_READV)
+            ws2 = wb[SHEET_READV]
+            existing_readv_ids = {
+                ws2.cell(row=r, column=6).value
+                for r in range(2, ws2.max_row + 1)
+            }
+            if ws2.max_row == 2 and ws2.cell(row=2, column=1).value and ws2.cell(row=2, column=6).value is None:
+                ws2.delete_rows(2)
+        else:
+            ws2 = wb.create_sheet(SHEET_READV)
+            existing_readv_ids = set()
 
         # ── New Ads sheet: append only new rows ─────────────────────────────
         if SHEET_NEW in wb.sheetnames:
@@ -406,6 +418,7 @@ def write_excel(removed_rows: list[dict], readv_rows: list[dict],
         set_hdr(ws1, HDR1, HDR_FILL_RED)
         new_removed = removed_rows
         ws2 = wb.create_sheet(SHEET_READV)
+        existing_readv_ids = set()
         ws3 = wb.create_sheet(SHEET_NEW)
         set_hdr(ws3, HDR3, HDR_FILL_GREEN)
         new_new_ads = new_ads_rows
@@ -437,10 +450,12 @@ def write_excel(removed_rows: list[dict], readv_rows: list[dict],
     print(f"  [excel] Removed sheet: +{len(new_removed)} new row(s)  "
           f"(total rows: {ws1.max_row - 1})")
 
-    # ── Re-Advertisers sheet (full refresh each run) ─────────────────────────
+    # ── Re-Advertisers sheet: append only new rows ───────────────────────────
     set_hdr(ws2, HDR2, HDR_FILL_BLUE)
+    new_readv_rows = [r for r in readv_rows
+                      if r["ad_archive_id"] not in existing_readv_ids]
 
-    for i, r in enumerate(readv_rows, 2):
+    for i, r in enumerate(new_readv_rows, ws2.max_row + 1):
         name  = (r["politician_query"] or "").split("|")[0].strip()
         imp   = (f"{r['impressions_min']:,}–{r['impressions_max']:,}"
                  if r['impressions_min'] else "")
@@ -457,8 +472,9 @@ def write_excel(removed_rows: list[dict], readv_rows: list[dict],
             for col in range(1, len(HDR2) + 1):
                 ws2.cell(row=i, column=col).fill = ALT_FILL
 
-    if not readv_rows:
-        ws2.append(["No re-advertisers detected."])
+    if not new_readv_rows:
+        if ws2.max_row < 2:
+            ws2.append(["No re-advertisers detected."])
 
     autofit(ws2)
 
@@ -512,7 +528,7 @@ def main():
     conn      = sqlite3.connect(DB_PATH)
 
     removed_rows  = get_newly_removed(conn, blocklist, args.hours)
-    readv_rows    = get_readvertisers(conn, blocklist)
+    readv_rows    = get_readvertisers(conn, blocklist, args.hours)
     new_ads_rows  = get_new_ads(conn, blocklist, args.hours)
 
     conn.close()
