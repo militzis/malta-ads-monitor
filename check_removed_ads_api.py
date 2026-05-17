@@ -39,11 +39,13 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 load_dotenv(override=True)
 
-BASE      = os.path.dirname(os.path.abspath(__file__))
-CY_DB     = os.path.join(BASE, "politician_ads.db")
-MT_DB     = os.path.join(BASE, "politician_ads_mt.db")
-META_URL  = "https://graph.facebook.com/v25.0/ads_archive"
-LOG_FILE  = os.path.join(BASE, "removals_log.xlsx")
+BASE            = os.path.dirname(os.path.abspath(__file__))
+CY_DB           = os.path.join(BASE, "politician_ads.db")
+MT_DB           = os.path.join(BASE, "politician_ads_mt.db")
+META_URL        = "https://graph.facebook.com/v25.0/ads_archive"
+LOG_FILE        = os.path.join(BASE, "removals_log.xlsx")
+FETCH_STATE_CY  = os.path.join(BASE, "fetch_state.json")
+FETCH_STATE_MT  = os.path.join(BASE, "fetch_state_mt.json")
 AD_URL    = "https://www.facebook.com/ads/library/?id={}"
 
 LOG_HEADERS = [
@@ -140,6 +142,39 @@ def load_unchecked(conn, only_unchecked: bool, recheck_days: float,
         ads = ads[:limit]
 
     return ads
+
+
+# ── Page-cursor helpers (for --max-pages mode) ───────────────────────────────
+
+def load_page_cursor(state_file: str, key: str) -> str:
+    """Return the page_id of the first page to process next run.
+    Empty string means start from the beginning of the sorted list."""
+    if os.path.exists(state_file):
+        try:
+            with open(state_file, encoding='utf-8') as f:
+                return str(json.load(f).get(key, ""))
+        except Exception:
+            pass
+    return ""
+
+
+def save_page_cursor(state_file: str, key: str, value: str) -> None:
+    """Persist the page cursor for the next run (atomic write)."""
+    state = {}
+    if os.path.exists(state_file):
+        try:
+            with open(state_file, encoding='utf-8') as f:
+                state = json.load(f)
+        except Exception:
+            pass
+    state[key] = value
+    tmp = state_file + ".tmp"
+    try:
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(state, f, indent=2)
+        os.replace(tmp, state_file)
+    except Exception as e:
+        print(f"  [cursor] WARNING: could not save cursor: {e}")
 
 
 def save_results(conn, results: list[tuple]) -> None:
@@ -434,7 +469,45 @@ def process_db(db_path: str, country: str, args, token: str,
         else:
             no_page.append(a)
 
-    print(f"  Pages        : {len(by_page):,}  ({len(no_page)} ads missing page_id — skipped)")
+    total_pages = len(by_page)
+    print(f"  Pages total  : {total_pages:,}  ({len(no_page)} ads missing page_id — skipped)")
+
+    # ── Max-pages cursor: process a slice of pages per run ───────────────────
+    max_pages = getattr(args, 'max_pages', 0)
+    if max_pages > 0 and not args.active_only:
+        state_file = FETCH_STATE_CY if country == "CY" else FETCH_STATE_MT
+        cursor_key = f"check_removed_{country.lower()}_page_cursor"
+
+        # Sort pages deterministically so the cursor is stable across runs
+        sorted_page_ids = sorted(by_page.keys())
+
+        # Find the start index from the saved cursor (page_id of first page to process)
+        cursor = load_page_cursor(state_file, cursor_key)
+        if cursor:
+            try:
+                start_idx = sorted_page_ids.index(cursor)
+            except ValueError:
+                # Cursor page no longer in the list — wrap to beginning
+                start_idx = 0
+        else:
+            start_idx = 0
+
+        end_idx = min(start_idx + max_pages, len(sorted_page_ids))
+        pages_this_run = sorted_page_ids[start_idx:end_idx]
+
+        # Save cursor for next run: first page of the next chunk (empty = wrap)
+        next_cursor = sorted_page_ids[end_idx] if end_idx < len(sorted_page_ids) else ""
+        save_page_cursor(state_file, cursor_key, next_cursor)
+
+        remaining = len(sorted_page_ids) - end_idx
+        print(f"  This run     : pages {start_idx}–{end_idx - 1} of {len(sorted_page_ids)} "
+              f"({remaining} deferred to next run{' — wrapping' if not next_cursor else ''})")
+
+        # Restrict by_page to only the pages for this run
+        by_page = {pid: by_page[pid] for pid in pages_this_run}
+    # ─────────────────────────────────────────────────────────────────────────
+
+    print(f"  Pages to run : {len(by_page):,}")
     print(f"  Sleep        : {args.sleep}s between pages")
     print("─" * 60)
 
@@ -552,6 +625,10 @@ def main():
                         help='Re-check active ads not checked in N days (default: 7, 0=disable)')
     parser.add_argument('--sleep',        type=float, default=1.5,
                         help='Sleep between page API requests in seconds (default: 1.5)')
+    parser.add_argument('--max-pages',    type=int, default=0,
+                        help='Max pages to check per run; cursor saved to fetch_state so next '
+                             'run continues where this one left off (0 = no limit, default: 0). '
+                             'Ignored in --active-only mode.')
     args = parser.parse_args()
 
     token = os.environ.get("META_ACCESS_TOKEN")

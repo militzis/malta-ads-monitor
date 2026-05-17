@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: db-write
+  group: active-check
   cancel-in-progress: false
 
 jobs:
@@ -39,7 +39,7 @@ jobs:
       - name: Check active pages for removals (CY + MT)
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python check_removed_ads_api.py --active-only --sleep 2
+        run: python check_removed_ads_api.py --active-only --sleep 0.5
 
       # ── 4. Commit ────────────────────────────────────────────────────────────
       - name: Commit and push
