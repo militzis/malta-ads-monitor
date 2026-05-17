@@ -12,7 +12,7 @@ concurrency:
 jobs:
   check-active:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     permissions:
       contents: write
 
@@ -34,12 +34,12 @@ jobs:
         run: pip install requests python-dotenv openpyxl
 
       # ── 3. Fast active-only removal check ────────────────────────────────────
-      # Only checks pages that currently have a running ad (~26 CY + ~30 MT pages).
-      # Takes ~3–4 minutes vs ~17 minutes for the full check.
+      # Only checks pages that currently have a running ad.
+      # Volume has grown as the election approaches — allow 30 min.
       - name: Check active pages for removals (CY + MT)
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python check_removed_ads_api.py --active-only --sleep 3
+        run: python check_removed_ads_api.py --active-only --sleep 2
 
       # ── 4. Commit ────────────────────────────────────────────────────────────
       - name: Commit and push
