@@ -33,7 +33,7 @@ jobs:
       - name: Check removed ads (CY + MT)
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python check_removed_ads_api.py --recheck-days 3 --sleep 3
+        run: python check_removed_ads_api.py --recheck-days 1 --sleep 3
 
       # ── 4. Commit ────────────────────────────────────────────────────────────
       - name: Commit and push
