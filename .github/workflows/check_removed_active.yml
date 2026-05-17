@@ -2,7 +2,7 @@ name: Check Removed Ads — Active Pages (Hourly)
 
 on:
   schedule:
-    - cron: '15 * * * *'   # every hour at :15 (offset from the 6-hourly full check at :00)
+    - cron: '15 */2 * * *'   # every 2 hours at :15 (offset from the 6-hourly full check at :00)
   workflow_dispatch:
 
 concurrency:

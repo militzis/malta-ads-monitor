@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: db-write
+  group: cy-db-write
   cancel-in-progress: false
 
 jobs:
