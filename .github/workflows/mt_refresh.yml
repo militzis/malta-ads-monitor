@@ -2,7 +2,7 @@ name: Malta Ads — 3-Hour Refresh
 
 on:
   schedule:
-    - cron: '30 0,3,6,9,12,15,18,21 * * *'   # every 3 hours, 30 min after CY
+    - cron: '45 0,3,6,9,12,15,18,21 * * *'   # every 3 hours, 45 min after CY
   workflow_dispatch:
 
 concurrency:
