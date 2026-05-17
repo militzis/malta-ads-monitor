@@ -170,8 +170,6 @@ EXPLICIT_BLOCK = {
     # Consumer org
     "484951294976883": "Κυπριακός Σύνδεσμος Καταναλωτών (consumer association)",
     # Other clearly non-political
-    "253826851152246": "Σταμάτης Στάμος Παπαβασιλείου (non-politician - duplicate with Stamos)",
-    "335236209662864": "Stamos Papavasiliou (non-politician)",
     "127586543929133": "George Marinakis / Stillness in Motion (photographer)",
     "707444845794849": "Κωνσταντίνος ο Κουροπαλάτης (historical figure page)",
     "740174869184809": "ΡΗΓΑΣ Φεραίος (historical figure page)",
