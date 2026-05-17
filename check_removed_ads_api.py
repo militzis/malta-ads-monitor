@@ -317,9 +317,11 @@ def log_new_removals(conn, newly_removed_ids: list[str], country: str,
 
 # ── API ───────────────────────────────────────────────────────────────────────
 
-RATE_LIMIT_CODE = 613      # Meta API error code for rate limiting
-RATE_LIMIT_SLEEP = 60     # seconds to wait on rate limit before retry
-MAX_RETRIES      = 3
+RATE_LIMIT_CODE      = 613   # Meta API error code for rate limiting
+RATE_LIMIT_SLEEP     = 60   # seconds to wait on rate limit before retry
+MAX_RETRIES          = 2    # cap at 2 retries → max 180s per page (was 420s at 3)
+CONSEC_ERROR_ABORT   = 5    # abort this DB after N consecutive non-rate-limit failures
+SERVER_ERROR_SLEEP   = 10   # seconds to wait before retrying a 500
 
 
 def fetch_page_ads(page_id: str, since_date: str, country: str, token: str) -> dict:
@@ -346,18 +348,26 @@ def fetch_page_ads(page_id: str, since_date: str, country: str, token: str) -> d
         while url:
             resp = requests.get(url, params=params, timeout=30)
             if resp.status_code != 200:
-                err_body  = resp.json().get("error", {})
-                err_code  = err_body.get("code", 0)
-                err_msg   = err_body.get("message", "?")
+                try:
+                    err_body = resp.json().get("error", {})
+                except Exception:
+                    err_body = {}
+                err_code = err_body.get("code", 0)
+                err_msg  = err_body.get("message", f"HTTP {resp.status_code}")
                 if err_code == RATE_LIMIT_CODE and retries < MAX_RETRIES:
                     wait = RATE_LIMIT_SLEEP * (2 ** retries)
                     print(f"      [rate limit] sleeping {wait}s then retrying page {page_id}…")
                     time.sleep(wait)
                     retries += 1
-                    # don't advance url/params — retry the same request
+                    continue
+                # Non-rate-limit error (e.g. 500): retry once with short sleep
+                if resp.status_code >= 500 and retries < 1:
+                    print(f"      [!] API {resp.status_code} — sleeping {SERVER_ERROR_SLEEP}s then retrying page {page_id}…")
+                    time.sleep(SERVER_ERROR_SLEEP)
+                    retries += 1
                     continue
                 print(f"      [!] API {resp.status_code}: {err_msg}")
-                break
+                return results, True   # signal: API error occurred
             retries = 0   # reset on success
             data = resp.json()
             for ad in data.get("data", []):
@@ -381,7 +391,8 @@ def fetch_page_ads(page_id: str, since_date: str, country: str, token: str) -> d
                 time.sleep(0.3)
     except requests.RequestException as e:
         print(f"      [!] Request failed: {e}")
-    return results
+        return results, True   # signal: API error occurred
+    return results, False      # False = no error
 
 
 # ── Core ─────────────────────────────────────────────────────────────────────
@@ -435,6 +446,7 @@ def process_db(db_path: str, country: str, args, token: str,
     newly_removed: list[str] = []   # ad_ids newly detected as removed this run
     BATCH_SIZE = 100
     page_count = 0
+    consec_errors = 0              # consecutive API error counter
 
     # Pre-load which ads in our queue are ALREADY removed in the DB
     # so we don't log them as "new" when they were previously known
@@ -455,8 +467,19 @@ def process_db(db_path: str, country: str, args, token: str,
         dates     = [a['ad_start_date'] for a in page_ads if a['ad_start_date']]
         since_str = min(dates) if dates else "2025-01-01"
 
-        api_results = fetch_page_ads(page_id, since_str, country, token)
+        api_results, had_error = fetch_page_ads(page_id, since_str, country, token)
         page_count += 1
+
+        if had_error:
+            consec_errors += 1
+            if consec_errors >= CONSEC_ERROR_ABORT:
+                print(f"\n  [!] {consec_errors} consecutive API errors — Meta API appears to be down.")
+                print(f"  [!] Aborting {label} check early to avoid wasting timeout budget.")
+                break
+            total_skipped += len(page_ads)
+            continue
+        else:
+            consec_errors = 0   # reset on any successful page
 
         for a in page_ads:
             ad_id = a['ad_archive_id']
