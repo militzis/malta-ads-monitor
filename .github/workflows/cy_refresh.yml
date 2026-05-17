@@ -45,15 +45,15 @@ jobs:
       - name: CY — Scan candidate list chunk (Greek names)
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python check_all_candidates.py --chunk-size 30
+        run: python check_all_candidates.py --source greek --chunk-size 30
 
       - name: CY — Scan candidate list chunk (Latin names)
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python check_all_candidates_latin.py --chunk-size 30
+        run: python check_all_candidates.py --source latin --chunk-size 30
 
       - name: CY — Generate 3h report
-        run: python daily_report_cy.py --hours 3
+        run: python daily_report.py --country CY --hours 3
 
       # ════════════════════════════════════════════════════════════════════════
       # SUMMARY (reads both DBs — MT DB is from last MT run)

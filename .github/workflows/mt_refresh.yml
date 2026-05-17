@@ -40,10 +40,10 @@ jobs:
       - name: MT — Fetch new ads
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python check_all_candidates_mt.py --chunk-size 30
+        run: python check_all_candidates.py --source mt --chunk-size 30
 
       - name: MT — Generate 3h report
-        run: python daily_report_mt.py --hours 3
+        run: python daily_report.py --country MT --hours 3
 
       # ════════════════════════════════════════════════════════════════════════
       # SUMMARY (reads both DBs — CY DB is from last CY run, 30 min ago)
