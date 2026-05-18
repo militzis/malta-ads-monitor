@@ -393,8 +393,8 @@ def log_new_removals(conn, newly_removed_ids: list[str], country: str,
 # ── API ───────────────────────────────────────────────────────────────────────
 
 RATE_LIMIT_CODE      = 613   # Meta API error code for rate limiting
-RATE_LIMIT_SLEEP     = 60   # seconds to wait on rate limit before retry
-MAX_RETRIES          = 2    # cap at 2 retries → max 180s per page (was 420s at 3)
+RATE_LIMIT_SLEEP     = 30   # seconds to wait on rate limit before retry
+MAX_RETRIES          = 1    # one retry then skip — keeps CI job within timeout
 CONSEC_ERROR_ABORT   = 5    # abort this DB after N consecutive non-rate-limit failures
 SERVER_ERROR_SLEEP   = 10   # seconds to wait before retrying a 500
 
