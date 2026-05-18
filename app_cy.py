@@ -184,72 +184,64 @@ with col1:
     st.metric("Total Ads", f"{len(df):,}")
     with st.popover("ℹ️ more", use_container_width=True):
         st.markdown(
-            "**Total Ads** — every individual ad in the database that matches "
-            "your current filters (party, district, date range, search, etc.).\n\n"
-            "One politician can run many ads — each creative, each campaign "
-            "burst, and each re-launch counts separately."
+            "**Total Ads** — the total number of political ads found.\n\n"
+            "A single politician can run many different ads at the same time — "
+            "different images, different messages, different audiences. "
+            "Each one is counted separately here."
         )
 
 with col2:
     st.metric("Candidate Pages", f"{df['candidate'].nunique():,}")
     with st.popover("ℹ️ more", use_container_width=True):
         st.markdown(
-            "**Candidate Pages** — the number of distinct *candidate names* "
-            "found in the filtered results.\n\n"
-            "Each unique politician counts as one, regardless of how many "
-            "Facebook pages they use to run ads."
+            "**Candidate Pages** — how many individual politicians are "
+            "advertising in the results shown.\n\n"
+            "Each politician is counted once, no matter how many ads they are running."
         )
 
 with col3:
     st.metric("Unique Pages", f"{df['page_id'].nunique():,}")
     with st.popover("ℹ️ more", use_container_width=True):
         st.markdown(
-            "**Unique Pages** — the number of distinct *Facebook pages* "
-            "running ads in the filtered results.\n\n"
-            "This is always **≥ Candidate Pages** because:\n"
-            "- A candidate may advertise from their personal page *and* "
-            "their party's page simultaneously\n"
-            "- Party or coalition pages run ads that mention multiple "
-            "candidates\n"
-            "- Third-party support pages are attributed to the candidate "
-            "they promote\n\n"
-            f"Gap today: **{df['page_id'].nunique() - df['candidate'].nunique():,} "
-            "extra pages** beyond the candidate count."
+            "**Unique Pages** — how many different Facebook pages are "
+            "being used to run political ads.\n\n"
+            "This number is usually higher than the number of candidates because "
+            "a politician may advertise from their personal page, their party's page, "
+            "and supporter pages all at once — each counts as a separate page.\n\n"
+            f"Right now there are **{df['page_id'].nunique() - df['candidate'].nunique():,} more "
+            "pages than candidates** in the results."
         )
 
 with col4:
     st.metric("Active", f"{active_n:,}")
     with st.popover("ℹ️ more", use_container_width=True):
         st.markdown(
-            "**Active** — ads currently running: no stop date recorded "
-            "and not removed by Meta.\n\n"
-            "Meta only sets a stop date once an ad actually stops "
-            "delivering, so this is a real-time count of live campaigns."
+            "**Active** — ads that are live and visible to voters right now.\n\n"
+            "These ads are currently being shown on Facebook and Instagram."
         )
 
 with col5:
     st.metric("Inactive", f"{inactive_n:,}")
     with st.popover("ℹ️ more", use_container_width=True):
         st.markdown(
-            "**Inactive** — ads that stopped running *naturally* "
-            "(the campaign ended or budget ran out). "
-            "These were **not** removed by Meta for policy violations — "
-            "the candidate chose to stop them."
+            "**Inactive** — ads that have finished running.\n\n"
+            "The politician chose to stop these ads — they were not taken down "
+            "by Facebook. They may have ended because the campaign period finished "
+            "or the advertising budget was used up."
         )
 
 with col6:
     removed_help = (
-        f"Removal check coverage: {checked_n:,} / {len(df):,} ads checked"
-        if checked_n else "Removal status not yet checked for these ads"
+        f"So far {checked_n:,} out of {len(df):,} ads have been checked."
+        if checked_n else "Removal checks are pending for these ads."
     )
     st.metric("Removed by Meta", f"{removed_n:,}")
     with st.popover("ℹ️ more", use_container_width=True):
         st.markdown(
-            "**Removed by Meta** — ads taken down by Meta for violating "
-            "their Advertising Standards (e.g. misleading content, "
-            "missing political disclaimer, targeting violations).\n\n"
-            "Removal is detected automatically by querying the Meta Ad "
-            "Library API every few hours.\n\n"
+            "**Removed by Meta** — ads that Facebook/Meta took down because "
+            "they broke the rules.\n\n"
+            "Reasons can include misleading content, missing required disclosures "
+            "about who paid for the ad, or other policy violations.\n\n"
             f"📊 *{removed_help}*"
         )
 
@@ -260,12 +252,10 @@ with col7:
     )
     with st.popover("ℹ️ more", use_container_width=True):
         st.markdown(
-            "**Est. Spend Max** — the sum of each ad's *upper-bound* "
-            "spend estimate across all filtered ads (EUR).\n\n"
-            "Meta reports spend as a range (e.g. €500 – €999). "
-            "This figure uses the **upper bound** of each range, so "
-            "the true total is somewhere between the min and max sum.\n\n"
-            "⚠️ Ads without spend data are excluded from this total."
+            "**Est. Spend Max** — the estimated total amount spent on these ads.\n\n"
+            "Facebook does not reveal exact figures — it only shows a range "
+            "(for example, '€500 – €999'). This total uses the top of each range, "
+            "so the real amount spent is likely a bit lower."
         )
 
 st.divider()
