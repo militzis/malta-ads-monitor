@@ -297,7 +297,8 @@ def main():
     grand_yes = grand_no = grand_unc = grand_kw = grand_total = 0
 
     for country_label, db_path, bl_path in db_targets:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=30)
+        conn.execute("PRAGMA journal_mode=WAL")
         ensure_columns(conn)
 
         blocklist = load_blocklist(bl_path)
