@@ -224,6 +224,22 @@ HDR3 = ["Politician", "Party", "District", "Page Name", "Page ID",
         "Impressions", "Spend", "Currency", "First Seen At"]
 
 
+def _strip_duplicate_headers(ws, hdr: list):
+    """Remove any data rows whose first cell matches the header label.
+
+    Happens when the file was partially loaded (e.g. OneDrive lock) and
+    set_hdr was called multiple times, writing header values as data rows.
+    """
+    to_delete = [
+        r for r in range(2, ws.max_row + 1)
+        if ws.cell(row=r, column=1).value == hdr[0]
+    ]
+    for r in reversed(to_delete):
+        ws.delete_rows(r)
+    if to_delete:
+        print(f"  [warn] Removed {len(to_delete)} duplicate header row(s) from sheet '{ws.title}'")
+
+
 def write_excel(removed_rows, readv_rows, new_ads_rows,
                 hours: int, out_dir: str, file_prefix: str) -> str:
     try:
@@ -264,6 +280,7 @@ def write_excel(removed_rows, readv_rows, new_ads_rows,
 
         if SHEET_REMOVED in wb.sheetnames:
             ws1 = wb[SHEET_REMOVED]
+            _strip_duplicate_headers(ws1, HDR1)
             existing_ids = {ws1.cell(row=r, column=6).value for r in range(2, ws1.max_row + 1)}
             if ws1.max_row == 2 and ws1.cell(row=2, column=1).value and ws1.cell(row=2, column=6).value is None:
                 ws1.delete_rows(2)
@@ -275,6 +292,7 @@ def write_excel(removed_rows, readv_rows, new_ads_rows,
 
         if SHEET_READV in wb.sheetnames:
             ws2 = wb[SHEET_READV]
+            _strip_duplicate_headers(ws2, HDR2)
             existing_readv_ids = {ws2.cell(row=r, column=6).value for r in range(2, ws2.max_row + 1)}
             if ws2.max_row == 2 and ws2.cell(row=2, column=1).value and ws2.cell(row=2, column=6).value is None:
                 ws2.delete_rows(2)
@@ -285,6 +303,7 @@ def write_excel(removed_rows, readv_rows, new_ads_rows,
 
         if SHEET_NEW in wb.sheetnames:
             ws3 = wb[SHEET_NEW]
+            _strip_duplicate_headers(ws3, HDR3)
             existing_new_ids = {ws3.cell(row=r, column=6).value for r in range(2, ws3.max_row + 1)}
             if ws3.max_row == 2 and ws3.cell(row=2, column=1).value and ws3.cell(row=2, column=6).value is None:
                 ws3.delete_rows(2)
