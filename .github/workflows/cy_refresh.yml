@@ -40,7 +40,7 @@ jobs:
       - name: CY — Fetch new ads (known pages)
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python fetch_by_page_ids_cy.py --since $(date -d "1 day ago" +%Y-%m-%d)
+        run: python fetch_by_page_ids_cy.py --since $(date -d "3 days ago" +%Y-%m-%d)
 
       - name: CY — Scan candidate list chunk (Greek names)
         env:
