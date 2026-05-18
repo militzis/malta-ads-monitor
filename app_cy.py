@@ -173,28 +173,100 @@ if search:
 
 # ── Top metrics ───────────────────────────────────────────────────────────────
 col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
-col1.metric("Total Ads",    f"{len(df):,}")
-col2.metric("Candidate Pages", f"{df['candidate'].nunique():,}")
-col3.metric("Districts",    f"{df['district'].nunique():,}")
-col4.metric("Active",       f"{int((df['ad_stop_date'].isna() & (df['removed'] != 1)).sum()):,}")
 
+active_n   = int((df['ad_stop_date'].isna() & (df['removed'] != 1)).sum())
 inactive_n = int((df['ad_stop_date'].notna() & (df['removed'] != 1)).sum())
-col5.metric("Inactive", f"{inactive_n:,}")
-
-removed_n = int((df['removed'] == 1).sum())
-checked_n = int(df['removed'].notna().sum())
-col6.metric(
-    "Removed by Meta",
-    f"{removed_n:,}",
-    help=f"Checked: {checked_n:,} / {len(df):,}" if checked_n else "Run check_removed_ads_cy.py",
-)
-
+removed_n  = int((df['removed'] == 1).sum())
+checked_n  = int(df['removed'].notna().sum())
 total_spend_max = df['spend_max'].sum()
-col7.metric(
-    "Est. Spend Max",
-    f"€{int(total_spend_max):,}" if total_spend_max > 0 else "—",
-    help="Sum of spend_max across all filtered ads (EUR)",
-)
+
+with col1:
+    st.metric("Total Ads", f"{len(df):,}")
+    with st.popover("ℹ️ more", use_container_width=True):
+        st.markdown(
+            "**Total Ads** — every individual ad in the database that matches "
+            "your current filters (party, district, date range, search, etc.).\n\n"
+            "One politician can run many ads — each creative, each campaign "
+            "burst, and each re-launch counts separately."
+        )
+
+with col2:
+    st.metric("Candidate Pages", f"{df['candidate'].nunique():,}")
+    with st.popover("ℹ️ more", use_container_width=True):
+        st.markdown(
+            "**Candidate Pages** — the number of distinct *candidate names* "
+            "found in the filtered results.\n\n"
+            "Each unique politician counts as one, regardless of how many "
+            "Facebook pages they use to run ads."
+        )
+
+with col3:
+    st.metric("Unique Pages", f"{df['page_id'].nunique():,}")
+    with st.popover("ℹ️ more", use_container_width=True):
+        st.markdown(
+            "**Unique Pages** — the number of distinct *Facebook pages* "
+            "running ads in the filtered results.\n\n"
+            "This is always **≥ Candidate Pages** because:\n"
+            "- A candidate may advertise from their personal page *and* "
+            "their party's page simultaneously\n"
+            "- Party or coalition pages run ads that mention multiple "
+            "candidates\n"
+            "- Third-party support pages are attributed to the candidate "
+            "they promote\n\n"
+            f"Gap today: **{df['page_id'].nunique() - df['candidate'].nunique():,} "
+            "extra pages** beyond the candidate count."
+        )
+
+with col4:
+    st.metric("Active", f"{active_n:,}")
+    with st.popover("ℹ️ more", use_container_width=True):
+        st.markdown(
+            "**Active** — ads currently running: no stop date recorded "
+            "and not removed by Meta.\n\n"
+            "Meta only sets a stop date once an ad actually stops "
+            "delivering, so this is a real-time count of live campaigns."
+        )
+
+with col5:
+    st.metric("Inactive", f"{inactive_n:,}")
+    with st.popover("ℹ️ more", use_container_width=True):
+        st.markdown(
+            "**Inactive** — ads that stopped running *naturally* "
+            "(the campaign ended or budget ran out). "
+            "These were **not** removed by Meta for policy violations — "
+            "the candidate chose to stop them."
+        )
+
+with col6:
+    removed_help = (
+        f"Removal check coverage: {checked_n:,} / {len(df):,} ads checked"
+        if checked_n else "Removal status not yet checked for these ads"
+    )
+    st.metric("Removed by Meta", f"{removed_n:,}")
+    with st.popover("ℹ️ more", use_container_width=True):
+        st.markdown(
+            "**Removed by Meta** — ads taken down by Meta for violating "
+            "their Advertising Standards (e.g. misleading content, "
+            "missing political disclaimer, targeting violations).\n\n"
+            "Removal is detected automatically by querying the Meta Ad "
+            "Library API every few hours.\n\n"
+            f"📊 *{removed_help}*"
+        )
+
+with col7:
+    st.metric(
+        "Est. Spend Max",
+        f"€{int(total_spend_max):,}" if total_spend_max > 0 else "—",
+    )
+    with st.popover("ℹ️ more", use_container_width=True):
+        st.markdown(
+            "**Est. Spend Max** — the sum of each ad's *upper-bound* "
+            "spend estimate across all filtered ads (EUR).\n\n"
+            "Meta reports spend as a range (e.g. €500 – €999). "
+            "This figure uses the **upper bound** of each range, so "
+            "the true total is somewhere between the min and max sum.\n\n"
+            "⚠️ Ads without spend data are excluded from this total."
+        )
 
 st.divider()
 

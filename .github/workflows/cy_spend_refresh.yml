@@ -31,7 +31,7 @@ jobs:
           cache: 'pip'
 
       - name: Install Python dependencies
-        run: pip install requests python-dotenv openpyxl
+        run: pip install -r requirements.txt
 
       # ════════════════════════════════════════════════════════════════════════
       # Re-fetch last 14 days for all known CY pages to update
@@ -51,7 +51,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add politician_ads.db fetch_state.json  # CY DB + state only (never touch MT DB)
+          git add politician_ads.db                    # CY DB only (fetch_by_page_ids_cy.py does not write fetch_state.json)
           git add summary_*.xlsx || true
           if git diff --staged --quiet; then
             echo "Nothing changed — skipping commit."

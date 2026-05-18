@@ -58,26 +58,39 @@ def migrate_db(conn) -> None:
 
 
 def load_page_ids(conn, blocklist: set) -> list[dict]:
-    """Return unique page_ids that have YES or UNCERTAIN ads — skipping blocked pages."""
+    """
+    Return unique page_ids that have YES or UNCERTAIN ads — skipping blocked pages.
+
+    Uses a CTE + ROW_NUMBER() to assign each page the politician_query that
+    has the most ads on that page (rather than MAX() which picks alphabetically
+    last, which is wrong for multi-candidate party pages).
+    """
     rows = conn.execute("""
-        SELECT
-            page_id,
-            MAX(page_name)        AS page_name,
-            MAX(politician_query) AS politician_query,
-            MAX(party)            AS party,
-            MAX(district)         AS district,
-            MAX(source)           AS source,
-            COUNT(*)              AS ads
-        FROM politician_ads
-        WHERE page_id IS NOT NULL AND page_id != ''
-          AND election_related IN ('YES', 'UNCERTAIN')
-        GROUP BY page_id
+        WITH per_candidate AS (
+            SELECT page_id,
+                   politician_query, party, district, source,
+                   MAX(page_name) AS page_name,
+                   COUNT(*)       AS cnt
+            FROM politician_ads
+            WHERE page_id IS NOT NULL AND page_id != ''
+              AND election_related IN ('YES', 'UNCERTAIN')
+            GROUP BY page_id, politician_query
+        ),
+        ranked AS (
+            SELECT *,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY page_id ORDER BY cnt DESC
+                   ) AS rn
+            FROM per_candidate
+        )
+        SELECT page_id, page_name, politician_query, party, district, source, cnt AS ads
+        FROM ranked
+        WHERE rn = 1
         ORDER BY ads DESC
     """).fetchall()
     pages = [dict(zip(
         ['page_id','page_name','politician_query','party','district','source','ads'], r
     )) for r in rows]
-    # Skip pages already confirmed irrelevant
     return [p for p in pages if p['page_id'] not in blocklist]
 
 
@@ -178,7 +191,18 @@ def upsert_ads(conn, ads: list[dict], source: str) -> int:
 
 # ── API ───────────────────────────────────────────────────────────────────────
 
+_RATE_LIMIT_CODE  = 613
+_TOKEN_EXPIRY_CODE = 190
+_MAX_RETRIES      = 2
+_RATE_LIMIT_SLEEP = 60   # seconds; doubled on each retry
+
+
 def fetch_page(page_id: str, since_date: str, token: str) -> list[dict]:
+    """
+    Fetch all ads for a single page_id since since_date.
+    Retries up to _MAX_RETRIES times on rate-limit (613) with exponential back-off.
+    Exits immediately on token expiry (190) — no point continuing.
+    """
     params = {
         "ad_type":              "ALL",
         "ad_reached_countries": json.dumps(["CY"]),
@@ -193,18 +217,34 @@ def fetch_page(page_id: str, since_date: str, token: str) -> list[dict]:
         "limit":        100,
         "access_token": token,
     }
-    ads = []
-    url = META_URL
+    ads     = []
+    url     = META_URL
+    retries = 0
     try:
         while url:
             resp = requests.get(url, params=params, timeout=30)
             if resp.status_code != 200:
                 try:
-                    err = resp.json().get("error", {}).get("message", resp.text[:200])
+                    err_body = resp.json().get("error", {})
+                    err_code = err_body.get("code", 0)
+                    err_msg  = err_body.get("message", resp.text[:200])
                 except Exception:
-                    err = resp.text[:200]
-                print(f"    [!] API {resp.status_code}: {err}")
+                    err_code, err_msg = 0, resp.text[:200]
+
+                if err_code == _TOKEN_EXPIRY_CODE:
+                    sys.exit(
+                        "  [!] FATAL: Meta access token is invalid or expired "
+                        "(error 190). Renew META_ACCESS_TOKEN in GitHub Secrets."
+                    )
+                if err_code == _RATE_LIMIT_CODE and retries < _MAX_RETRIES:
+                    wait = _RATE_LIMIT_SLEEP * (2 ** retries)
+                    print(f"    [rate limit] sleeping {wait}s then retrying page {page_id}…")
+                    time.sleep(wait)
+                    retries += 1
+                    continue
+                print(f"    [!] API {resp.status_code}: {err_msg}")
                 break
+            retries = 0   # reset on success
             data = resp.json()
             ads.extend(data.get("data", []))
             url    = data.get("paging", {}).get("next")
@@ -239,7 +279,8 @@ def main():
     if not token:
         sys.exit("ERROR: META_ACCESS_TOKEN not set in .env")
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
     migrate_db(conn)
     blocklist = load_blocklist()
     pages = load_page_ids(conn, blocklist)
@@ -279,7 +320,7 @@ def main():
     print("\n── Summary " + "─" * 45)
     print(f"  Pages fetched : {len(pages):,}")
     print(f"  Ads saved     : {total_new:,}  (new + spend-updated)")
-    print(f"\nDone. Run check_removed_ads_cy.py next to check for removals.")
+    print(f"\nDone. Removal detection runs automatically via check_removed_ads_api.py.")
 
 
 if __name__ == "__main__":

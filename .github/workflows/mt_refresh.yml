@@ -31,7 +31,7 @@ jobs:
           cache: 'pip'
 
       - name: Install Python dependencies
-        run: pip install requests python-dotenv openpyxl
+        run: pip install -r requirements.txt
 
       # ════════════════════════════════════════════════════════════════════════
       # MALTA
@@ -39,7 +39,7 @@ jobs:
 
       - name: MT — Fetch new ads
         env:
-          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN_MT }}
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
         run: python check_all_candidates.py --source mt --chunk-size 30
 
       - name: MT — Generate 3h report

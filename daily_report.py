@@ -280,6 +280,7 @@ def write_excel(removed_rows, readv_rows, new_ads_rows,
                 ws2.delete_rows(2)
         else:
             ws2 = wb.create_sheet(SHEET_READV)
+            set_hdr(ws2, HDR2, HDR_FILL_BLUE)
             existing_readv_ids = set()
 
         if SHEET_NEW in wb.sheetnames:
@@ -300,6 +301,7 @@ def write_excel(removed_rows, readv_rows, new_ads_rows,
         set_hdr(ws1, HDR1, HDR_FILL_RED)
         new_removed = removed_rows
         ws2 = wb.create_sheet(SHEET_READV)
+        set_hdr(ws2, HDR2, HDR_FILL_BLUE)
         existing_readv_ids = set()
         ws3 = wb.create_sheet(SHEET_NEW)
         set_hdr(ws3, HDR3, HDR_FILL_GREEN)
@@ -326,8 +328,7 @@ def write_excel(removed_rows, readv_rows, new_ads_rows,
     autofit(ws1)
     print(f"  [excel] Removed sheet:    +{len(new_removed)} new row(s)  (total: {ws1.max_row - 1})")
 
-    # Re-advertisers sheet (always re-write header — safe for append-only)
-    set_hdr(ws2, HDR2, HDR_FILL_BLUE)
+    # Re-advertisers sheet — header written once when sheet is created (see above)
     new_readv = [r for r in readv_rows if r["ad_archive_id"] not in existing_readv_ids]
     for i, r in enumerate(new_readv, ws2.max_row + 1):
         name  = (r["politician_query"] or "").split("|")[0].strip()
@@ -396,7 +397,8 @@ def main():
         return
 
     blocklist    = load_blocklist(cfg["blocklist"])
-    conn         = sqlite3.connect(cfg["db"])
+    conn         = sqlite3.connect(cfg["db"], timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
     removed_rows = get_newly_removed(conn, blocklist, args.hours)
     readv_rows   = get_readvertisers(conn, blocklist, args.hours)
     new_ads_rows = get_new_ads(conn, blocklist, args.hours)

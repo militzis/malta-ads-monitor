@@ -327,55 +327,57 @@ def main():
     TOTAL_FONT = Font(bold=True, size=10)
 
     # ── Cyprus ──────────────────────────────────────────────────────────────
-    conn_cy = sqlite3.connect(DB_CY)
+    conn_cy = sqlite3.connect(DB_CY, timeout=30)
+    conn_cy.execute("PRAGMA journal_mode=WAL")
+    try:
+        # Sheet 1: CY Party Overview
+        ws = wb.active
+        ws.title = "CY — Party Overview"
+        build_party_sheet(ws, party_overview(conn_cy, today),
+                          "🇨🇾 Cyprus", FILLS["blue"], HDR_FONT, ALT_CY, LINK_FONT, TOTAL_FONT)
 
-    # Sheet 1: CY Party Overview
-    ws = wb.active
-    ws.title = "CY — Party Overview"
-    build_party_sheet(ws, party_overview(conn_cy, today),
-                      "🇨🇾 Cyprus", FILLS["blue"], HDR_FONT, ALT_CY, LINK_FONT, TOTAL_FONT)
+        # Sheet 2: CY Top by Spend
+        ws2 = wb.create_sheet("CY — Top by Spend")
+        build_top_sheet(ws2, top_politicians(conn_cy, today, "total_spend"),
+                        f"🇨🇾 Cyprus — Top 30 Advertisers by Spend  ({today})",
+                        "spend", FILLS["green"], HDR_FONT, ALT_CY, LINK_FONT)
 
-    # Sheet 2: CY Top by Spend
-    ws2 = wb.create_sheet("CY — Top by Spend")
-    build_top_sheet(ws2, top_politicians(conn_cy, today, "total_spend"),
-                    f"🇨🇾 Cyprus — Top 30 Advertisers by Spend  ({today})",
-                    "spend", FILLS["green"], HDR_FONT, ALT_CY, LINK_FONT)
+        # Sheet 3: CY Top by Impressions
+        ws3 = wb.create_sheet("CY — Top by Impressions")
+        build_top_sheet(ws3, top_politicians(conn_cy, today, "total_imp"),
+                        f"🇨🇾 Cyprus — Top 30 Advertisers by Impressions  ({today})",
+                        "imp", FILLS["teal"], HDR_FONT, ALT_CY, LINK_FONT)
 
-    # Sheet 3: CY Top by Impressions
-    ws3 = wb.create_sheet("CY — Top by Impressions")
-    build_top_sheet(ws3, top_politicians(conn_cy, today, "total_imp"),
-                    f"🇨🇾 Cyprus — Top 30 Advertisers by Impressions  ({today})",
-                    "imp", FILLS["teal"], HDR_FONT, ALT_CY, LINK_FONT)
+        # Sheet 4: CY Active Ads
+        ws4 = wb.create_sheet("CY — Active Ads")
+        build_ads_sheet(ws4, active_ads(conn_cy, today),
+                        f"🇨🇾 Cyprus — Currently Active Election Ads  ({today})",
+                        FILLS["purple"], HDR_FONT, ALT_CY, LINK_FONT)
 
-    # Sheet 4: CY Active Ads
-    ws4 = wb.create_sheet("CY — Active Ads")
-    build_ads_sheet(ws4, active_ads(conn_cy, today),
-                    f"🇨🇾 Cyprus — Currently Active Election Ads  ({today})",
-                    FILLS["purple"], HDR_FONT, ALT_CY, LINK_FONT)
-
-    # Sheet 5: CY Removed Ads
-    ws5 = wb.create_sheet("CY — Removed Ads")
-    build_ads_sheet(ws5, removed_ads(conn_cy),
-                    f"🇨🇾 Cyprus — Removed Election Ads  (partial — removal check ongoing)",
-                    FILLS["red"], HDR_FONT, ALT_CY, LINK_FONT, include_removed_col=True)
-
-    conn_cy.close()
+        # Sheet 5: CY Removed Ads
+        ws5 = wb.create_sheet("CY — Removed Ads")
+        build_ads_sheet(ws5, removed_ads(conn_cy),
+                        f"🇨🇾 Cyprus — Removed Election Ads  (partial — removal check ongoing)",
+                        FILLS["red"], HDR_FONT, ALT_CY, LINK_FONT, include_removed_col=True)
+    finally:
+        conn_cy.close()
 
     # ── Malta ────────────────────────────────────────────────────────────────
     if os.path.exists(DB_MT):
-        conn_mt = sqlite3.connect(DB_MT)
+        conn_mt = sqlite3.connect(DB_MT, timeout=30)
+        conn_mt.execute("PRAGMA journal_mode=WAL")
         migrate_db(conn_mt)
+        try:
+            ws6 = wb.create_sheet("MT — Party Overview")
+            build_party_sheet(ws6, party_overview(conn_mt, today),
+                              "🇲🇹 Malta", FILLS["orange"], HDR_FONT, ALT_MT, LINK_FONT, TOTAL_FONT)
 
-        ws6 = wb.create_sheet("MT — Party Overview")
-        build_party_sheet(ws6, party_overview(conn_mt, today),
-                          "🇲🇹 Malta", FILLS["orange"], HDR_FONT, ALT_MT, LINK_FONT, TOTAL_FONT)
-
-        ws7 = wb.create_sheet("MT — Active Ads")
-        build_ads_sheet(ws7, active_ads(conn_mt, today),
-                        f"🇲🇹 Malta — Currently Active Election Ads  ({today})",
-                        FILLS["orange"], HDR_FONT, ALT_MT, LINK_FONT)
-
-        conn_mt.close()
+            ws7 = wb.create_sheet("MT — Active Ads")
+            build_ads_sheet(ws7, active_ads(conn_mt, today),
+                            f"🇲🇹 Malta — Currently Active Election Ads  ({today})",
+                            FILLS["orange"], HDR_FONT, ALT_MT, LINK_FONT)
+        finally:
+            conn_mt.close()
 
     wb.save(fname)
     print(f"Saved → {fname}")

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: db-write
+  group: classify-write
   cancel-in-progress: false
 
 jobs:
@@ -31,7 +31,7 @@ jobs:
           cache: 'pip'
 
       - name: Install Python dependencies
-        run: pip install requests python-dotenv anthropic
+        run: pip install -r requirements.txt
 
       # ── 3. Classify ──────────────────────────────────────────────────────────
       - name: CY — Classify new ads

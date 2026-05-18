@@ -232,8 +232,12 @@ def save_chunk_pos(state_file: str, chunk_key: str, pos: int):
 
 
 # ── Database ──────────────────────────────────────────────────────────────────
+INTER_CANDIDATE_SLEEP = 10   # seconds between candidates; keeps rate-limit budget safe
+
+
 def init_db(db_path: str):
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS politician_ads (
             ad_archive_id    TEXT PRIMARY KEY,
@@ -277,7 +281,8 @@ def init_db(db_path: str):
 
 
 def upsert_ads(db_path: str, ads: list[dict], db_source: str) -> int:
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
     now = datetime.now(timezone.utc).isoformat()
     inserted = 0
     for ad in ads:
@@ -417,7 +422,8 @@ def fetch_ads(search_name: str, page_ids: list[str], country: str,
 
 # ── Report ────────────────────────────────────────────────────────────────────
 def print_report(db_path: str, source: str):
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
     total = conn.execute("SELECT COUNT(*) FROM politician_ads").fetchone()[0]
     print(f"\n{'='*60}")
     print(f"REPORT — {source.upper()} SCAN")
@@ -522,11 +528,11 @@ def main():
             print(f"[{i}/{len(candidates)}] {name} → '{search_name}' ({party})")
         else:
             search_name = name
-            page_ids    = [p.strip() for p in page_id.split(",") if p.strip()]
-            print(f"[{i}/{len(candidates)}] {name} ({party})"
-                  + (f"  [{len(page_ids)} page IDs]" if page_ids else ""))
+            print(f"[{i}/{len(candidates)}] {name} ({party})")
 
         page_ids = [p.strip() for p in page_id.split(",") if p.strip()]
+        if page_ids and not cfg["transliterate"]:
+            print(f"    [{len(page_ids)} page ID(s)]")
         page_id_ads, name_ads = fetch_ads(
             search_name, page_ids, cfg["country"], since_date, cfg["page_id_search"]
         )
@@ -580,7 +586,7 @@ def main():
             print(f"    name: {len(name_ads)}  →  {len(all_ads)} unique  ({saved} saved)")
 
         if i < len(candidates):
-            time.sleep(10)
+            time.sleep(INTER_CANDIDATE_SLEEP)
 
     # ── Persist state ─────────────────────────────────────────────────────────
     if args.chunk_size > 0:

@@ -31,7 +31,7 @@ jobs:
           cache: 'pip'
 
       - name: Install Python dependencies
-        run: pip install requests python-dotenv openpyxl
+        run: pip install -r requirements.txt
 
       # ════════════════════════════════════════════════════════════════════════
       # CYPRUS

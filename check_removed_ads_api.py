@@ -29,7 +29,7 @@ Usage:
     CY: ~26 pages (~78 sec).  MT: ~30 pages (~90 sec).  Safe to run hourly.
 """
 
-import os, sys, sqlite3, json, time, argparse, requests
+import os, sys, sqlite3, json, time, argparse, requests, contextlib
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta, date
 from dotenv import load_dotenv
@@ -42,10 +42,14 @@ load_dotenv(override=True)
 BASE            = os.path.dirname(os.path.abspath(__file__))
 CY_DB           = os.path.join(BASE, "politician_ads.db")
 MT_DB           = os.path.join(BASE, "politician_ads_mt.db")
-META_URL        = "https://graph.facebook.com/v25.0/ads_archive"
-LOG_FILE        = os.path.join(BASE, "removals_log.xlsx")
-FETCH_STATE_CY  = os.path.join(BASE, "fetch_state.json")
-FETCH_STATE_MT  = os.path.join(BASE, "fetch_state_mt.json")
+META_URL               = "https://graph.facebook.com/v25.0/ads_archive"
+LOG_FILE               = os.path.join(BASE, "removals_log.xlsx")
+# Dedicated state files for page cursors (--max-pages mode).
+# Kept separate from fetch_state.json / fetch_state_mt.json so that
+# check_removed (group: db-write) never races with cy_refresh / mt_refresh
+# (groups: cy-db-write / mt-db-write) over the same JSON file.
+CHECK_REMOVED_STATE_CY = os.path.join(BASE, "check_removed_state.json")
+CHECK_REMOVED_STATE_MT = os.path.join(BASE, "check_removed_state_mt.json")
 AD_URL    = "https://www.facebook.com/ads/library/?id={}"
 
 LOG_HEADERS = [
@@ -225,6 +229,37 @@ def save_results(conn, results: list[tuple]) -> None:
 
 # ── Excel log ────────────────────────────────────────────────────────────────
 
+@contextlib.contextmanager
+def _log_file_lock():
+    """
+    Cross-process exclusive lock for removals_log.xlsx.
+
+    Both check_removed.yml (db-write group) and check_removed_active.yml
+    (active-check group) can detect removals simultaneously.  Without this
+    lock, the second process's openpyxl .save() overwrites the first one's
+    newly appended rows — silently losing removal log entries.
+
+    Uses fcntl.LOCK_EX on Linux/macOS (GitHub Actions = ubuntu-latest).
+    Falls back to a no-op on Windows so local development still works.
+    """
+    lockfile = LOG_FILE + ".lock"
+    fd = open(lockfile, "w")
+    try:
+        try:
+            import fcntl
+            fcntl.flock(fd, fcntl.LOCK_EX)   # blocks until acquired
+        except ImportError:
+            pass                              # Windows: accept the race
+        yield
+    finally:
+        try:
+            import fcntl
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except ImportError:
+            pass
+        fd.close()
+
+
 def _load_log_ids() -> set:
     """Return ad_archive_ids already in removals_log.xlsx (avoid duplicate rows)."""
     if not os.path.exists(LOG_FILE):
@@ -248,58 +283,63 @@ def _load_log_ids() -> set:
 
 
 def _append_to_log(rows: list[dict]) -> None:
-    """Append new-removal rows to removals_log.xlsx, creating it if needed."""
+    """
+    Append new-removal rows to removals_log.xlsx, creating it if needed.
+
+    Holds an exclusive file lock for the entire read-modify-write cycle so
+    that concurrent runs of check_removed and check_removed_active cannot
+    overwrite each other's rows.  IDs are re-checked under the lock to
+    prevent duplicate entries when both processes detect the same removal.
+    """
     if not rows:
         return
     try:
         from openpyxl import load_workbook, Workbook
         from openpyxl.styles import PatternFill, Font, Alignment
+        from openpyxl.utils import get_column_letter
 
         RED_FILL  = PatternFill("solid", fgColor="C00000")
         WHITE_HDR = Font(bold=True, color="FFFFFF")
 
-        if os.path.exists(LOG_FILE):
-            wb = load_workbook(LOG_FILE)
-            ws = wb.active
-        else:
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "Removals Log"
-            ws.append(LOG_HEADERS)
-            for cell in ws[1]:
-                cell.fill      = RED_FILL
-                cell.font      = WHITE_HDR
-                cell.alignment = Alignment(horizontal="center", wrap_text=True)
-            ws.row_dimensions[1].height = 22
-            ws.freeze_panes = "A2"
-            # Column widths
-            widths = [20, 8, 28, 16, 14, 32, 20, 12, 12, 12, 12, 14, 55]
-            from openpyxl.utils import get_column_letter
-            for i, w in enumerate(widths, 1):
-                ws.column_dimensions[get_column_letter(i)].width = w
+        with _log_file_lock():
+            # Re-read existing IDs under the lock: if another process already
+            # wrote some of these IDs between our _load_log_ids() call and now,
+            # skip them to avoid duplicate rows.
+            existing_ids_now = _load_log_ids()
+            rows = [r for r in rows if str(r["ad_id"]) not in existing_ids_now]
+            if not rows:
+                return
 
-        for r in rows:
-            ws.append([
-                r["detected_at"],
-                r["country"],
-                r["candidate"],
-                r["party"],
-                r["district"],
-                r["page_name"],
-                r["ad_id"],
-                r["start_date"],
-                r["stop_date"],
-                r["spend_min"],
-                r["spend_max"],
-                r["impressions_max"],
-                AD_URL.format(r["ad_id"]),
-            ])
-            # Style the URL cell
-            url_cell = ws.cell(ws.max_row, 13)
-            url_cell.font = Font(color="0563C1", underline="single")
+            if os.path.exists(LOG_FILE):
+                wb = load_workbook(LOG_FILE)
+                ws = wb.active
+            else:
+                wb = Workbook()
+                ws = wb.active
+                ws.title = "Removals Log"
+                ws.append(LOG_HEADERS)
+                for cell in ws[1]:
+                    cell.fill      = RED_FILL
+                    cell.font      = WHITE_HDR
+                    cell.alignment = Alignment(horizontal="center", wrap_text=True)
+                ws.row_dimensions[1].height = 22
+                ws.freeze_panes = "A2"
+                widths = [20, 8, 28, 16, 14, 32, 20, 12, 12, 12, 12, 14, 55]
+                for i, w in enumerate(widths, 1):
+                    ws.column_dimensions[get_column_letter(i)].width = w
 
-        wb.save(LOG_FILE)
-        print(f"  [log] Appended {len(rows)} new removal(s) → removals_log.xlsx")
+            for r in rows:
+                ws.append([
+                    r["detected_at"], r["country"], r["candidate"],
+                    r["party"], r["district"], r["page_name"],
+                    r["ad_id"], r["start_date"], r["stop_date"],
+                    r["spend_min"], r["spend_max"], r["impressions_max"],
+                    AD_URL.format(r["ad_id"]),
+                ])
+                ws.cell(ws.max_row, 13).font = Font(color="0563C1", underline="single")
+
+            wb.save(LOG_FILE)
+            print(f"  [log] Appended {len(rows)} new removal(s) → removals_log.xlsx")
 
     except ImportError:
         print("  [log] openpyxl not installed — skipping Excel log")
@@ -401,6 +441,12 @@ def fetch_page_ads(page_id: str, since_date: str, country: str, token: str) -> d
                     time.sleep(SERVER_ERROR_SLEEP)
                     retries += 1
                     continue
+                # Token expired / revoked — no point continuing; fail loudly
+                if err_code == 190:
+                    sys.exit(
+                        "  [!] FATAL: Meta access token is invalid or expired "
+                        "(error 190). Renew META_ACCESS_TOKEN in GitHub Secrets."
+                    )
                 print(f"      [!] API {resp.status_code}: {err_msg}")
                 return results, True   # signal: API error occurred
             retries = 0   # reset on success
@@ -440,7 +486,8 @@ def process_db(db_path: str, country: str, args, token: str,
     print(f"  {label} — {db_path}")
     print(f"{'═'*60}")
 
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30)
+    conn.execute("PRAGMA journal_mode=WAL")
 
     if args.active_only:
         ads = load_active_page_ads(conn)
@@ -475,7 +522,7 @@ def process_db(db_path: str, country: str, args, token: str,
     # ── Max-pages cursor: process a slice of pages per run ───────────────────
     max_pages = getattr(args, 'max_pages', 0)
     if max_pages > 0 and not args.active_only:
-        state_file = FETCH_STATE_CY if country == "CY" else FETCH_STATE_MT
+        state_file = CHECK_REMOVED_STATE_CY if country == "CY" else CHECK_REMOVED_STATE_MT
         cursor_key = f"check_removed_{country.lower()}_page_cursor"
 
         # Sort pages deterministically so the cursor is stable across runs
@@ -521,9 +568,10 @@ def process_db(db_path: str, country: str, args, token: str,
     page_count = 0
     consec_errors = 0              # consecutive API error counter
 
-    # Pre-load which ads in our queue are ALREADY removed in the DB
-    # so we don't log them as "new" when they were previously known
-    all_ids = [a['ad_archive_id'] for a in ads]
+    # Pre-load which ads in THIS RUN's cursor window are already removed in the DB
+    # so we don't log them as "new" when they were previously known.
+    # Scoped to by_page (post-cursor-slice) to avoid SQLite's 999-variable limit.
+    all_ids = [a['ad_archive_id'] for page_ads in by_page.values() for a in page_ads]
     if all_ids:
         ph = ",".join("?" * len(all_ids))
         already_removed_in_db = set(

@@ -31,7 +31,7 @@ jobs:
           cache: 'pip'
 
       - name: Install Python dependencies
-        run: pip install requests python-dotenv openpyxl
+        run: pip install -r requirements.txt
 
       # ── 3. Fast active-only removal check ────────────────────────────────────
       # Only checks pages that currently have a running ad.
