@@ -193,8 +193,8 @@ def upsert_ads(conn, ads: list[dict], source: str) -> int:
 
 _RATE_LIMIT_CODE  = 613
 _TOKEN_EXPIRY_CODE = 190
-_MAX_RETRIES      = 2
-_RATE_LIMIT_SLEEP = 60   # seconds; doubled on each retry
+_MAX_RETRIES      = 1           # one retry then skip — don't burn the CI timeout
+_RATE_LIMIT_SLEEP = 30          # seconds; doubled on retry (30s → 60s max per page)
 
 
 def fetch_page(page_id: str, since_date: str, token: str) -> list[dict]:
