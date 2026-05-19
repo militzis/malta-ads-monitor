@@ -84,9 +84,37 @@ KEYWORDS = [
     'Ορθοδοξία Οικογένεια',                   # (20c / 39b ✓)
     'Ελληνισμός Ορθοδοξία',                   # (20c / 39b ✓)
     'απέλαση', 'μεταναστευτικό', 'λαθρομετανάστες',
-    # ── Common political slogans / themes ──
     'αλλαγή', 'ανανέωση', 'μεταρρύθμιση', 'δημοκρατία', 'πατρίδα',
     'change cyprus', 'new cyprus',
+    # ── Sweep batch added 2026-05-18 ───────────────────────────────────
+    # Housing / cost-of-living (huge issue in CY 2026)
+    'στέγη', 'ενοίκιο', 'ενοίκια', 'πρώτη κατοικία', 'στεγαστικό',
+    'ακρίβεια', 'ακριβός', 'πληθωρισμός', 'ΦΠΑ', 'τιμές',
+    # Healthcare
+    'ΓΕΣΥ', 'υγεία', 'νοσηλεία', 'φάρμακα', 'ασφάλιση',
+    # Education / youth
+    'παιδεία', 'πανεπιστήμιο', 'φοιτητές', 'νεολαία',
+    'νέοι ψηφοφόροι', 'πρώτη ψήφος', 'νέα γενιά',
+    # Environment / climate
+    'περιβάλλον', 'κλιματική', 'κλιματική κρίση', 'ανανεώσιμες',
+    # Pensions / welfare
+    'σύνταξη', 'συντάξεις', 'συνταξιούχοι', 'ΕΕΕ', 'κοινωνική',
+    # Foreign / EU policy
+    'Τουρκία', 'τουρκική', 'εισβολή', 'Ευρώπη', 'Ευρωπαϊκή Ένωση',
+    # Domestic political process
+    'νομοσχέδιο', 'δημοψήφισμα', 'ψηφοφόρος', 'καμπάνια',
+    # Common candidate slogans (frequent in CY 2026 ads)
+    'καλύτερα', 'ψήφος ευθύνης', 'ψήφος αλλαγής',
+    'καλύτερο μέλλον', 'νέα Κύπρος', 'για την Κύπρο',
+    'για όλους', 'μαζί',
+    # TikTok hashtag-style
+    'cyprus2026', 'cyelections', 'cyelections2026',
+    'κυπριακέςεκλογές', 'βουλευτικές2026',
+    # Specific Cyprus-only political figures (non-party)
+    'Χριστοδουλίδης', 'Παμπορίδης', 'Τορναρίτης',
+    'Στεφάνου', 'Δαμιανού',
+    # ELAM variants
+    'εθνική παράταξη', 'ελληνική Κύπρος',
 ]
 
 # Existing bids in our DB so we know what's NEW
@@ -223,11 +251,17 @@ for ad_id, rec in side['found_ads'].items():
     ads_by_bid[rec['bid']].append(rec)
 
 saved_total = 0
+from tiktok_api import resolve_disclosed_name
 for bid_str, ad_records in ads_by_bid.items():
     if bid_str in KNOWN_BIDS:
         continue   # skip — we already track this advertiser
     rows = []
-    handle_or_id = ad_records[0].get('business_name') or bid_str
+    # Numeric-business_name quirk — centralized in tiktok_api.py.
+    # Sweep has no /advertiser/query/ result to fall back to (it found
+    # this advertiser via keyword), so the last-resort fallback is the
+    # business_id stringified. The real handle gets back-filled later
+    # via Playwright bioscan or a search_term lookup.
+    handle_or_id = resolve_disclosed_name(ad_records[0], fallback=bid_str)
     hit_terms_set = set()
     for rec in ad_records:
         hit_terms_set.update(rec.get('hit_terms', []))

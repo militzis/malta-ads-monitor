@@ -512,7 +512,21 @@ def upsert_rows(rows: list[dict]) -> int:
     so non-listed columns (e.g. transcript, targeting_age) are preserved
     when re-upserting an existing row — the old positional INSERT OR REPLACE
     silently NULL'd those out, which is bad when re-fetching after schema growth.
+
+    Acquires a cross-process lock on the DB file so concurrent runs
+    (e.g. manual discover + cron refresh) serialize cleanly. SQLite's
+    own file lock prevents corruption, but two writers can still race
+    on the side caches and lose UPDATEs to the same ad_id.
     """
+    from db_lock import db_lock
+    with db_lock(DB_PATH):
+        return _upsert_rows_unlocked(rows)
+
+
+def _upsert_rows_unlocked(rows: list[dict]) -> int:
+    """Inner upsert without lock acquisition. Called by upsert_rows()
+    or by callers that already hold the lock (e.g. when batching multiple
+    upserts inside one outer transaction)."""
     conn  = sqlite3.connect(DB_PATH)
     now   = datetime.now(timezone.utc).isoformat()
     cols       = ",".join(_UPSERT_COLS)
@@ -738,11 +752,18 @@ def run(args):
             lb, ub = parse_reach(reach_raw)
             ad_id = str(ad_obj.get('id') or '')
 
+            # Numeric-business_name quirk — see tiktok_api.resolve_disclosed_name
+            # docstring for the full explanation. We centralize the workaround
+            # in tiktok_api.py so every reader/writer uses the same logic.
+            from tiktok_api import resolve_disclosed_name, resolve_funded_by
+            disclosed_name  = resolve_disclosed_name(av_obj, fallback=name)
+            funded_by_value = resolve_funded_by(av_obj)
+
             row = {
                 'ad_id':                     ad_id,
                 'advertiser_id':             str(av_obj.get('business_id') or bid),
-                'advertiser_disclosed_name': av_obj.get('business_name') or name,
-                'ad_funded_by':              av_obj.get('paid_for_by'),
+                'advertiser_disclosed_name': disclosed_name,
+                'ad_funded_by':              funded_by_value,
                 'country_code':              'CY',
                 'ad_url':                    f"https://library.tiktok.com/ads/detail/?ad_id={ad_id}" if ad_id else None,
                 'first_shown':               _fmt_date(ad_obj.get('first_shown_date', '')),
