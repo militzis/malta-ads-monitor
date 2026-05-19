@@ -393,9 +393,10 @@ def log_new_removals(conn, newly_removed_ids: list[str], country: str,
 # ── API ───────────────────────────────────────────────────────────────────────
 
 RATE_LIMIT_CODE      = 613   # Meta API error code for rate limiting
-RATE_LIMIT_SLEEP     = 30   # seconds to wait on rate limit before retry
-MAX_RETRIES          = 1    # one retry then skip — keeps CI job within timeout
-CONSEC_ERROR_ABORT   = 5    # abort this DB after N consecutive non-rate-limit failures
+RATE_LIMIT_SLEEP     = 60   # seconds to wait on first rate-limit retry (was 30)
+MAX_RETRIES          = 1    # one retry then signal rate_limited to caller
+SUSTAINED_BACKOFF    = 120  # caller sleeps this long before a second attempt
+CONSEC_ERROR_ABORT   = 10   # abort only after N consecutive non-rate-limit errors (was 5)
 SERVER_ERROR_SLEEP   = 10   # seconds to wait before retrying a 500
 
 
@@ -403,14 +404,19 @@ def fetch_page_ads(page_id: str, since_date: str, country: str, token: str):
     """
     Query the Ads Library API for all ads on page_id since since_date.
 
-    Returns (results, seen_ids, had_error):
-      results  – {ad_archive_id: {is_removed, spend_min, ...}} for ads WITH bodies
-      seen_ids – set of ALL ad IDs the API returned (with or without bodies)
-      had_error – True if the API call failed (caller should skip, not conclude removal)
+    Returns (results, seen_ids, had_error, rate_limited):
+      results      – {ad_archive_id: {is_removed, spend_min, ...}} for ads seen
+      seen_ids     – set of ALL ad IDs the API returned (with or without bodies)
+      had_error    – True on non-rate-limit API failure (connection error, 5xx, etc.)
+      rate_limited – True when still throttled after retry sleep (caller should back off)
+
+    Rate limits (613) are separated from real errors so the caller can distinguish:
+      - rate_limited=True  → sleep SUSTAINED_BACKOFF and try again; don't abort
+      - had_error=True     → skip page; count toward CONSEC_ERROR_ABORT
 
     Removal is detected two ways:
       1. Body contains REMOVAL_TEXT  → is_removed=True in results
-      2. Ad ID in seen_ids but has no body  → treated as removed (content deleted by Meta)
+      2. Ad ID in seen_ids but has no body  → treated as removed (Meta strips content)
       3. Ad ID absent from seen_ids entirely, but seen_ids is non-empty (page has other ads)
          → caller treats this as removed too
     """
@@ -443,6 +449,10 @@ def fetch_page_ads(page_id: str, since_date: str, country: str, token: str):
                     time.sleep(wait)
                     retries += 1
                     continue
+                if err_code == RATE_LIMIT_CODE:
+                    # Still throttled after retry — signal caller to do a sustained backoff
+                    print(f"      [!] API still rate-limited after retry — signalling sustained backoff")
+                    return results, seen_ids, False, True
                 if resp.status_code >= 500 and retries < 1:
                     print(f"      [!] API {resp.status_code} — sleeping {SERVER_ERROR_SLEEP}s then retrying page {page_id}…")
                     time.sleep(SERVER_ERROR_SLEEP)
@@ -454,7 +464,7 @@ def fetch_page_ads(page_id: str, since_date: str, country: str, token: str):
                         "(error 190). Renew META_ACCESS_TOKEN in GitHub Secrets."
                     )
                 print(f"      [!] API {resp.status_code}: {err_msg}")
-                return results, seen_ids, True   # signal: API error
+                return results, seen_ids, True, False   # real error, not rate limit
             retries = 0
             data = resp.json()
             for ad in data.get("data", []):
@@ -482,8 +492,8 @@ def fetch_page_ads(page_id: str, since_date: str, country: str, token: str):
                 time.sleep(0.3)
     except requests.RequestException as e:
         print(f"      [!] Request failed: {e}")
-        return results, seen_ids, True
-    return results, seen_ids, False
+        return results, seen_ids, True, False
+    return results, seen_ids, False, False
 
 
 # ── Core ─────────────────────────────────────────────────────────────────────
@@ -598,7 +608,25 @@ def process_db(db_path: str, country: str, args, token: str,
         dates     = [a['ad_start_date'] for a in page_ads if a['ad_start_date']]
         since_str = min(dates) if dates else "2025-01-01"
 
-        api_results, seen_ids, had_error = fetch_page_ads(page_id, since_str, country, token)
+        api_results, seen_ids, had_error, rate_limited = fetch_page_ads(
+            page_id, since_str, country, token)
+
+        if rate_limited:
+            # Sustained rate limit — sleep a long time and retry this page once
+            print(f"  [!] Sustained rate limit on page {page_id} — "
+                  f"sleeping {SUSTAINED_BACKOFF}s before retry…")
+            time.sleep(SUSTAINED_BACKOFF)
+            api_results, seen_ids, had_error, rate_limited = fetch_page_ads(
+                page_id, since_str, country, token)
+            if rate_limited:
+                # Still throttled after backoff — skip page, don't count as server error
+                print(f"  [!] Still rate-limited after backoff — skipping page {page_id}")
+                total_skipped += len(page_ads)
+                page_count += 1
+                if page_count < len(by_page) and args.sleep > 0:
+                    time.sleep(args.sleep)
+                continue
+
         page_count += 1
 
         if had_error:
@@ -700,9 +728,13 @@ def main():
     args = parser.parse_args()
 
     cy_token = os.environ.get("META_ACCESS_TOKEN")
-    mt_token = os.environ.get("META_ACCESS_TOKEN_MT") or cy_token  # fall back to shared token
+    mt_token_raw = os.environ.get("META_ACCESS_TOKEN_MT")
+    mt_token = mt_token_raw or cy_token  # fall back to shared token
     if not cy_token:
         sys.exit("ERROR: META_ACCESS_TOKEN not set in environment or .env")
+    if not mt_token_raw:
+        print("  [warn] META_ACCESS_TOKEN_MT not set — MT will share the CY token "
+              "(doubles rate-limit pressure). Add META_ACCESS_TOKEN_MT to GitHub Secrets.")
 
     run_cy = not args.mt   # run CY unless --mt-only
     run_mt = not args.cy   # run MT unless --cy-only

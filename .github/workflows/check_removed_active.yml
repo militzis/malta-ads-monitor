@@ -40,7 +40,7 @@ jobs:
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
           META_ACCESS_TOKEN_MT: ${{ secrets.META_ACCESS_TOKEN_MT }}
-        run: python check_removed_ads_api.py --active-only --sleep 0.5
+        run: python check_removed_ads_api.py --active-only --sleep 2
 
       # ── 4. Commit ────────────────────────────────────────────────────────────
       - name: Commit and push
