@@ -399,13 +399,20 @@ CONSEC_ERROR_ABORT   = 5    # abort this DB after N consecutive non-rate-limit f
 SERVER_ERROR_SLEEP   = 10   # seconds to wait before retrying a 500
 
 
-def fetch_page_ads(page_id: str, since_date: str, country: str, token: str) -> dict:
+def fetch_page_ads(page_id: str, since_date: str, country: str, token: str):
     """
     Query the Ads Library API for all ads on page_id since since_date.
-    Returns {ad_archive_id: is_removed (bool)}.
 
-    Handles rate limiting (#613) with exponential back-off (up to MAX_RETRIES).
-    Returns {} on persistent failure so the caller marks those ads as skipped.
+    Returns (results, seen_ids, had_error):
+      results  – {ad_archive_id: {is_removed, spend_min, ...}} for ads WITH bodies
+      seen_ids – set of ALL ad IDs the API returned (with or without bodies)
+      had_error – True if the API call failed (caller should skip, not conclude removal)
+
+    Removal is detected two ways:
+      1. Body contains REMOVAL_TEXT  → is_removed=True in results
+      2. Ad ID in seen_ids but has no body  → treated as removed (content deleted by Meta)
+      3. Ad ID absent from seen_ids entirely, but seen_ids is non-empty (page has other ads)
+         → caller treats this as removed too
     """
     params = {
         "ad_type":              "ALL",
@@ -416,9 +423,10 @@ def fetch_page_ads(page_id: str, since_date: str, country: str, token: str) -> d
         "limit":                100,
         "access_token":         token,
     }
-    results = {}
-    url = META_URL
-    retries = 0
+    results  = {}
+    seen_ids = set()   # every ad ID the API returned, regardless of body
+    url      = META_URL
+    retries  = 0
     try:
         while url:
             resp = requests.get(url, params=params, timeout=30)
@@ -435,45 +443,47 @@ def fetch_page_ads(page_id: str, since_date: str, country: str, token: str) -> d
                     time.sleep(wait)
                     retries += 1
                     continue
-                # Non-rate-limit error (e.g. 500): retry once with short sleep
                 if resp.status_code >= 500 and retries < 1:
                     print(f"      [!] API {resp.status_code} — sleeping {SERVER_ERROR_SLEEP}s then retrying page {page_id}…")
                     time.sleep(SERVER_ERROR_SLEEP)
                     retries += 1
                     continue
-                # Token expired / revoked — no point continuing; fail loudly
                 if err_code == 190:
                     sys.exit(
                         "  [!] FATAL: Meta access token is invalid or expired "
                         "(error 190). Renew META_ACCESS_TOKEN in GitHub Secrets."
                     )
                 print(f"      [!] API {resp.status_code}: {err_msg}")
-                return results, True   # signal: API error occurred
-            retries = 0   # reset on success
+                return results, seen_ids, True   # signal: API error
+            retries = 0
             data = resp.json()
             for ad in data.get("data", []):
+                ad_id  = ad["id"]
+                seen_ids.add(ad_id)
                 bodies = ad.get("ad_creative_bodies") or []
+                spend  = ad.get("spend") or {}
+                imp    = ad.get("impressions") or {}
                 if bodies:
                     is_removed = any(REMOVAL_TEXT in (b or "").lower() for b in bodies)
-                    spend  = ad.get("spend") or {}
-                    imp    = ad.get("impressions") or {}
-                    results[ad["id"]] = {
-                        "is_removed":     is_removed,
-                        "spend_min":      spend.get("lower_bound"),
-                        "spend_max":      spend.get("upper_bound"),
-                        "impressions_min": imp.get("lower_bound"),
-                        "impressions_max": imp.get("upper_bound"),
-                        "currency":       ad.get("currency"),
-                    }
-                # ads without bodies: not conclusive, skip (leave unchecked)
+                else:
+                    # API returned this ad but with no body — Meta strips content on removal
+                    is_removed = True
+                results[ad_id] = {
+                    "is_removed":      is_removed,
+                    "spend_min":       spend.get("lower_bound"),
+                    "spend_max":       spend.get("upper_bound"),
+                    "impressions_min": imp.get("lower_bound"),
+                    "impressions_max": imp.get("upper_bound"),
+                    "currency":        ad.get("currency"),
+                }
             url    = data.get("paging", {}).get("next")
             params = {}
             if url:
                 time.sleep(0.3)
     except requests.RequestException as e:
         print(f"      [!] Request failed: {e}")
-        return results, True   # signal: API error occurred
-    return results, False      # False = no error
+        return results, seen_ids, True
+    return results, seen_ids, False
 
 
 # ── Core ─────────────────────────────────────────────────────────────────────
@@ -588,7 +598,7 @@ def process_db(db_path: str, country: str, args, token: str,
         dates     = [a['ad_start_date'] for a in page_ads if a['ad_start_date']]
         since_str = min(dates) if dates else "2025-01-01"
 
-        api_results, had_error = fetch_page_ads(page_id, since_str, country, token)
+        api_results, seen_ids, had_error = fetch_page_ads(page_id, since_str, country, token)
         page_count += 1
 
         if had_error:
@@ -600,19 +610,29 @@ def process_db(db_path: str, country: str, args, token: str,
             total_skipped += len(page_ads)
             continue
         else:
-            consec_errors = 0   # reset on any successful page
+            consec_errors = 0
 
         for a in page_ads:
             ad_id = a['ad_archive_id']
-            if ad_id not in api_results:
+
+            if ad_id in api_results:
+                # API returned this ad — use the is_removed flag from body/no-body check
+                info       = api_results[ad_id]
+                is_removed = info["is_removed"]
+                spend_row  = (ad_id, 1 if is_removed else 0, now,
+                              info["spend_min"], info["spend_max"],
+                              info["impressions_min"], info["impressions_max"],
+                              info["currency"])
+            elif seen_ids:
+                # API call succeeded and returned other ads for this page,
+                # but this specific ad ID was absent entirely → removed by Meta
+                is_removed = True
+                spend_row  = (ad_id, 1, now, None, None, None, None, None)
+            else:
+                # API returned nothing for this page (empty response) — inconclusive
                 total_skipped += 1
                 continue
-            info       = api_results[ad_id]
-            is_removed = info["is_removed"]
-            spend_row  = (ad_id, 1 if is_removed else 0, now,
-                          info["spend_min"], info["spend_max"],
-                          info["impressions_min"], info["impressions_max"],
-                          info["currency"])
+
             if is_removed:
                 total_removed += 1
                 batch.append(spend_row)
