@@ -191,17 +191,19 @@ def upsert_ads(conn, ads: list[dict], source: str) -> int:
 
 # ── API ───────────────────────────────────────────────────────────────────────
 
-_RATE_LIMIT_CODE  = 613
+_RATE_LIMIT_CODE   = 613
 _TOKEN_EXPIRY_CODE = 190
-_MAX_RETRIES      = 1           # one retry then skip — don't burn the CI timeout
-_RATE_LIMIT_SLEEP = 30          # seconds; doubled on retry (30s → 60s max per page)
+_MAX_RETRIES       = 1    # one retry per page then skip
+_RATE_LIMIT_SLEEP  = 60   # seconds before first retry (was 30 — not enough)
+_SUSTAINED_BACKOFF = 180  # seconds to cool down when RETRY also hits rate limit
 
 
-def fetch_page(page_id: str, since_date: str, token: str) -> list[dict]:
+def fetch_page(page_id: str, since_date: str, token: str) -> tuple[list[dict], bool]:
     """
     Fetch all ads for a single page_id since since_date.
-    Retries up to _MAX_RETRIES times on rate-limit (613) with exponential back-off.
-    Exits immediately on token expiry (190) — no point continuing.
+    Returns (ads, rate_limited) — rate_limited=True means the API was still
+    throttled after the retry sleep; the caller should pause before the next page.
+    Exits immediately on token expiry (190).
     """
     params = {
         "ad_type":              "ALL",
@@ -217,9 +219,10 @@ def fetch_page(page_id: str, since_date: str, token: str) -> list[dict]:
         "limit":        100,
         "access_token": token,
     }
-    ads     = []
-    url     = META_URL
-    retries = 0
+    ads          = []
+    url          = META_URL
+    retries      = 0
+    rate_limited = False
     try:
         while url:
             resp = requests.get(url, params=params, timeout=30)
@@ -242,6 +245,9 @@ def fetch_page(page_id: str, since_date: str, token: str) -> list[dict]:
                     time.sleep(wait)
                     retries += 1
                     continue
+                if err_code == _RATE_LIMIT_CODE:
+                    # Still throttled after retry — signal caller to do a long cooldown
+                    rate_limited = True
                 print(f"    [!] API {resp.status_code}: {err_msg}")
                 break
             retries = 0   # reset on success
@@ -253,7 +259,7 @@ def fetch_page(page_id: str, since_date: str, token: str) -> list[dict]:
                 time.sleep(0.3)
     except requests.RequestException as e:
         print(f"    [!] Request failed: {e}")
-    return ads
+    return ads, rate_limited
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -300,7 +306,7 @@ def main():
         cand   = query.split("|")[0][:30]
         source = page["source"] or "greek"
 
-        ads = fetch_page(pid, since, token)
+        ads, rate_limited = fetch_page(pid, since, token)
 
         for ad in ads:
             ad["_query"]    = query
@@ -313,7 +319,12 @@ def main():
         print(f"[{i:>4}/{len(pages)}] {len(ads):>4} ads  {pname:<40} {cand}")
 
         if i < len(pages):
-            time.sleep(args.sleep)
+            if rate_limited:
+                # Retry also hit rate limit — API is hot. Long cooldown before next page.
+                print(f"  [!] Sustained rate limit — cooling down {_SUSTAINED_BACKOFF}s before next page…")
+                time.sleep(_SUSTAINED_BACKOFF)
+            else:
+                time.sleep(args.sleep)
 
     conn.close()
 
