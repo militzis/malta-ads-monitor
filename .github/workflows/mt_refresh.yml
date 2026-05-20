@@ -39,7 +39,10 @@ jobs:
 
       - name: MT — Fetch new ads
         env:
-          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          # MT uses its own token to avoid competing for CY's rate-limit budget.
+          # The Python script reads METAACCESS_TOKEN as a generic env var; we
+          # inject MT's secret under that name for the MT context.
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN_MT }}
         run: python -u check_all_candidates.py --source mt --chunk-size 30
 
       - name: MT — Generate 3h report
