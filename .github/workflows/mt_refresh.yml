@@ -40,7 +40,7 @@ jobs:
       - name: MT — Fetch new ads
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python check_all_candidates.py --source mt --chunk-size 30
+        run: python -u check_all_candidates.py --source mt --chunk-size 30
 
       - name: MT — Generate 3h report
         run: python daily_report.py --country MT --hours 3

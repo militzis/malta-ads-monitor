@@ -40,17 +40,17 @@ jobs:
       - name: CY — Fetch new ads (known pages)
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python fetch_by_page_ids_cy.py --since $(date -d "2 days ago" +%Y-%m-%d) --sleep 5
+        run: python -u fetch_by_page_ids_cy.py --since $(date -d "2 days ago" +%Y-%m-%d) --sleep 5
 
       - name: CY — Scan candidate list chunk (Greek names)
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python check_all_candidates.py --source greek --chunk-size 30
+        run: python -u check_all_candidates.py --source greek --chunk-size 30
 
       - name: CY — Scan candidate list chunk (Latin names)
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python check_all_candidates.py --source latin --chunk-size 30
+        run: python -u check_all_candidates.py --source latin --chunk-size 30
 
       - name: CY — Generate 3h report
         run: python daily_report.py --country CY --hours 3
