@@ -48,6 +48,10 @@ ads.db
 # Excel exports (regenerable from DB)
 *.xlsx
 *.xls
+# But DO commit the pipeline's own report outputs:
+!daily_report_*.xlsx
+!summary_*.xlsx
+!removals_log.xlsx
 
 # Logs
 *.log
