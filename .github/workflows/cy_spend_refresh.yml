@@ -41,7 +41,7 @@ jobs:
       - name: CY — Refresh spend/impressions (14-day window)
         env:
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-        run: python -u fetch_by_page_ids_cy.py --sleep 5
+        run: python -u fetch_by_page_ids_cy.py --sleep 2
 
       - name: Refresh summary Excel
         run: python make_summary_excel.py
